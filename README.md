@@ -4,7 +4,11 @@
 
 ## 安装与启动
 
-安装 [Miniconda 或 Anaconda](https://www.anaconda.com/docs/getting-started/miniconda/main)，在项目目录打开 Anaconda Prompt：
+Windows 安装过 Anaconda 或 Miniconda 后，直接双击 **`Start-Campo.cmd`**。启动器自动查找 conda，首次创建专用环境，检查并补齐依赖，然后打开程序；后续启动使用已有环境。首次安装需要网络连接。
+
+`Start-Demo.cmd` 可一键启动演示模式。启动失败会保留终端提示，程序错误日志位于 `data/launch-errors.log`。
+
+也可以在项目目录打开 Anaconda Prompt，手动安装：
 
 ```bat
 conda env create -f environment.yml
