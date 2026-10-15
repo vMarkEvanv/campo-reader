@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
 permissions:
-  contents: read
+  contents: write
 jobs:
   package:
     runs-on: windows-2022
@@ -63,3 +63,10 @@ jobs:
             smoke-windows.json
             build/CampoReader/warn-CampoReader.txt
           if-no-files-found: ignore
+      - name: Publish private Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release create v1.0.0 release/CampoReader-Setup-Windows-x64.exe release/CampoReader-Portable-Windows-x64.zip release/SHA256SUMS.txt release/smoke-windows.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Campo Reader 1.0.0 - Windows" --notes-file packaging/release-notes.md
+          if ($LASTEXITCODE -ne 0) { throw 'Private release publication failed' }
