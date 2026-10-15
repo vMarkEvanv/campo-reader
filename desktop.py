@@ -44,7 +44,7 @@ def main():
  from campo_backend.browser import configure_browser
  configure_browser()
  if len(sys.argv)>2 and sys.argv[1]=='--self-test':return self_test(sys.argv[2])
- from PySide6.QtCore import QLockFile,QObject,Signal,QUrl,Qt
+ from PySide6.QtCore import QLockFile,QObject,Signal,QUrl,Qt,QTimer
  from PySide6.QtGui import QDesktopServices,QIcon,QAction
  from PySide6.QtWidgets import QApplication,QMainWindow,QFileDialog,QMessageBox
  from PySide6.QtWebEngineCore import QWebEnginePage,QWebEngineProfile
@@ -61,10 +61,12 @@ def main():
   def acceptNavigationRequest(self,url,kind,is_main):
    value=url.toString()
    if value.startswith(srv.origin+'/') or value.startswith('blob:'+srv.origin+'/') or value=='about:blank':return True
-   if url.scheme() in ('https','mailto'):QDesktopServices.openUrl(url)
+   if url.scheme() in ('https','mailto'):
+    QDesktopServices.openUrl(url)
+    if getattr(self,'is_popup',False):QTimer.singleShot(0,self.parent().close)
    return False
   def createWindow(self,kind):
-   popup=QWebEngineView();popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);page=Page(self.profile(),popup);popup.setPage(page);popup.resize(1000,780);popup.show();window.popups.append(popup);return page
+   popup=QWebEngineView();popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);page=Page(self.profile(),popup);page.is_popup=True;popup.setPage(page);popup.resize(1000,780);popup.show();window.popups.append(popup);return page
  profile=QWebEngineProfile(app) # off-the-record: no persistent web cookies or browser history
  window=QMainWindow();window.popups=[];window.setWindowTitle('Campo Reader');window.resize(1420,940);window.setMinimumSize(860,640)
  icon=QIcon(str(resources()/'public/campo-icon.svg'));app.setWindowIcon(icon);window.setWindowIcon(icon)

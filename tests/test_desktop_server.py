@@ -36,3 +36,14 @@ class DesktopServerTests(unittest.TestCase):
   for path in ['/console','/api/console/state','/blog','/data/campo/calendar.key','/../desktop.py']:
    self.assertEqual(self.request('GET',path)[0],404)
   self.assertEqual(self.request('POST','/api/desktop/open-data')[0],200);self.assertEqual(self.opened,[True])
+
+ def test_launch_token_and_session_are_per_instance(self):
+  self.assertEqual(self.request('GET','/launch?token=incorrect',auth=False)[0],403)
+  with tempfile.TemporaryDirectory() as other:
+   another=DesktopServer(Path(other),self.server.public)
+   try:self.assertNotEqual(self.server.secret,another.secret);self.assertNotEqual(self.server.cookie_name,another.cookie_name)
+   finally:another.server_close()
+ def test_payload_limit_and_malformed_request_are_rejected(self):
+  self.assertEqual(self.request('POST','/api/campo',[],extra={})[0],400)
+  self.assertEqual(self.request('POST','/api/campo',{'action':'add','label':'A'},extra={'Content-Type':'text/plain'})[0],415)
+  self.assertEqual(self.request('POST','/api/console/send',{})[0],404)
