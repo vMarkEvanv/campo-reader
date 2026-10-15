@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+build/
+dist/
+release/
+browsers/
+*.sqlite3*
+*.key
+*.pem
+*.log
+smoke*.json

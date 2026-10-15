@@ -1,0 +1,3 @@
+/* Shared work-mode palette: navigation and Campo Reader. */
+:root[data-mode=work],:root[data-app=campo]{--bg:#101315;--paper:#1a1e22;--ink:#eef0f2;--muted:#979fa8;--accent:#a8c8eb;--accent-soft:#253441;--line:#ffffff10;--desk-selected:#303a43;--desk-glass:#20272d;color-scheme:dark}
+:root[data-mode=work],:root[data-app=campo]{--work-control-height:44px;--work-control-radius:12px;--work-panel-radius:18px;--work-ease:cubic-bezier(.22,.8,.22,1)}
