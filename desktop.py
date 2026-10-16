@@ -34,7 +34,7 @@ def run_window(root,report=None):
  from desktop_updates import UpdateController
  if sys.platform!='win32':raise RuntimeError('The desktop shell requires Windows WebView2')
  if not ensure_webview2(resources()):
-  message('需要 Microsoft Edge WebView2 Runtime。请重新运行 Campo Reader 安装包，联网完成运行时安装。');return 2
+  message('缺少必要的运行组件。请联网重新运行安装程序，完成后再打开应用。');return 2
  lock=DesktopLock(root)
  if not lock.acquire():message('Campo Reader 已在运行，请查看任务栏。');return 0
  result={'version':VERSION,'platform':sys.platform,'renderer':'edgechromium','ok':False};srv=None;updates=None
@@ -117,5 +117,5 @@ if __name__=='__main__':
   try:
    folder=data_directory();(folder/'startup-error.txt').write_text(type(exc).__name__,encoding='utf-8')
    from desktop_runtime import message
-   message('启动失败。请重新运行安装包并确认 WebView2 Runtime 已安装；本地数据会保留。')
+   message('启动失败。请重新运行安装程序修复组件；已有数据会保留。')
   finally:raise SystemExit(1)

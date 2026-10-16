@@ -25,7 +25,7 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: checkedonc
 [Files]
 Source: "MicrosoftEdgeWebview2Setup.exe"; Flags: dontcopy
 Source: "..\dist\CampoReader\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "USER_GUIDE.md"; DestDir: "{app}"; DestName: "README.md"; Flags: ignoreversion
 Source: "..\THIRD_PARTY_NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 [InstallDelete]
 Type: filesandordirs; Name: "{app}\_internal\PySide6"

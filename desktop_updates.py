@@ -58,13 +58,13 @@ class UpdateController:
   with self.lock:
    if not self.payload or self.state['busy']:return
    payload=dict(self.payload)
-   def done(path):self.path=path;self.state.update(downloaded=True,progress=100,message='下载及签名校验完成，可安装更新。')
+   def done(path):self.path=path;self.state.update(downloaded=True,progress=100,message='更新已准备好，可以安装。')
    self._work('download',lambda event,progress:updater.download_update(payload,self.root,event,progress),done)
  def install(self):
   with self.lock:
    if self.state['busy'] or not self.path or not self.payload:raise updater.UpdateError('请先下载并校验更新。')
    if self.is_syncing():raise updater.UpdateError('数据正在同步，请完成后再安装更新。')
-   if not getattr(sys,'frozen',False):raise updater.UpdateError('开发运行模式不执行安装。')
+   if not getattr(sys,'frozen',False):raise updater.UpdateError('请通过已安装的 Campo Reader 完成更新。')
    asset=self.payload['installer'];target=Path(sys.executable).resolve().parent
    args=[sys.executable,'--apply-update',str(self.path),'--sha256',asset['sha256'],'--size',str(asset['size']),'--wait-pid',str(os.getpid()),'--target-dir',str(target)]
    subprocess.Popen(args,env=dict(os.environ,PYINSTALLER_RESET_ENVIRONMENT='1'),close_fds=True,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP)

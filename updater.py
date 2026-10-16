@@ -30,13 +30,13 @@ def github_location(url):
 def fetch(http,url,timeout):
  # Follow GitHub's asset CDN redirects, rejecting other hosts and HTTP downgrades.
  for _ in range(6):
-  if not github_location(url):raise UpdateError('更新地址不属于 GitHub 官方发布服务。')
+  if not github_location(url):raise UpdateError('更新来源验证失败，请稍后重试。')
   r=http.get(url,timeout=timeout,stream=True,allow_redirects=False)
   if r.status_code not in (301,302,303,307,308):return r
   location=r.headers.get('Location');r.close()
-  if not location:raise UpdateError('GitHub 下载重定向不正确。')
+  if not location:raise UpdateError('无法获取有效的下载地址。')
   url=urljoin(url,location)
- raise UpdateError('GitHub 下载重定向次数过多。')
+ raise UpdateError('无法连接更新下载服务，请稍后重试。')
 
 MAX_SIZE=2*1024*1024*1024
 class UpdateError(Exception):pass
@@ -79,7 +79,7 @@ def check_update(key,current,event=None,feeds=FEEDS,session=None):
   except Cancelled:raise
   except UpdateError:raise
   except (requests.RequestException,ValueError,KeyError,TypeError):continue
- raise UpdateError('暂时无法连接 GitHub，请检查网络后重试。')
+ raise UpdateError('暂时无法连接更新服务，请检查网络后重试。')
 
 def verified_file(path,asset,event=None):
  path=Path(path)

@@ -43,6 +43,8 @@ jobs:
         run: |
           python packaging/make_icon.py
           python -m PyInstaller --noconfirm --clean CampoReader.spec
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          Copy-Item packaging/USER_GUIDE.md dist/CampoReader/README.md
       - name: Verify the actual executable and embedded browser
         shell: pwsh
         run: |
