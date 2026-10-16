@@ -26,22 +26,21 @@ class WorkspaceTests(unittest.TestCase):
         new=copy.deepcopy(self.base);new.update(range_start='2026-10-16',events=[])
         self.assertEqual(w.change_items(self.base,new),[])
 
-    def test_changed_time_room_and_new_grade_and_read_watermark(self):
-        new=copy.deepcopy(self.base);new['events'][0].update(start='2026-10-15T12:00:00+02:00',room='B');new['grades'][0]['grade']='1.0'
-        self.commit(new);state=self.snapshot()['workspace']
-        self.assertEqual(state['unread'],2)
-        calendar=next(c for c in state['changes'] if c['kind']=='calendar')
-        self.assertEqual(calendar['action'],'changed');self.assertEqual({f['field'] for f in calendar['fields']},{'开始时间','地点'})
-        through=state['changes'][0]['id']
-        next_data=copy.deepcopy(new);next_data['grades'][0]['status']='EN';self.commit(next_data)
-        state=self.action(action='changes-read',through_id=through)['workspace'];self.assertEqual(state['unread'],1)
+    def test_sync_updates_data_without_change_center_work(self):
+        new=copy.deepcopy(self.base);new['events'][0]['room']='B'
+        with patch.object(w,'record_changes',side_effect=AssertionError('obsolete change log')):
+            self.commit(new)
+        state=self.snapshot()
+        self.assertEqual(state['data']['events'][0]['room'],'B')
+        self.assertNotIn('changes',state['workspace'])
+        self.assertNotIn('unread',state['workspace'])
         self.assertEqual(self.campo.snapshot('bob')['accounts'],[])
 
     def test_sync_failure_rolls_back_change_log(self):
         store=self.campo.store(self.user);store.db.execute("CREATE TRIGGER fail_settings BEFORE INSERT ON web_settings BEGIN SELECT RAISE(ABORT, 'failure'); END");store.db.commit();store.close()
         new=copy.deepcopy(self.base);new['grades'][0]['grade']='1.0'
         with self.assertRaises(Exception):self.commit(new)
-        self.assertEqual(self.snapshot()['workspace']['changes'],[])
+        self.assertNotIn('changes',self.snapshot()['workspace'])
         self.assertEqual(self.snapshot()['data']['grades'],self.base['grades'])
 
     def test_exams_merge_only_explicit_calendar_and_registered_grade(self):
@@ -125,3 +124,34 @@ class CourseUpgradeTests(WorkspaceTests):
         self.campo.mark_expired(self.user,self.account)
         settings=self.snapshot()['settings']
         self.assertTrue(settings['reauth_required']);self.assertFalse(settings['ready']);self.assertFalse(settings['grades_ready'])
+
+class ExerciseCreditTests(WorkspaceTests):
+    def test_save_batch_and_reload_exercise_types(self):
+        initial=self.snapshot()['workspace'];key=initial['courses_view'][0]['id']
+        initial=self.action(action='plan-save',revision=initial['revision'],groups=[{'id':'g','name':'Required','target':30}],assignments={},planned=[])['workspace']
+        result=self.action(action='course-save',revision=initial['revision'],course_id=key,exercise=True,exercise_credits=True,will_exam=False,credits=3,group='g',ongoing=True,confirmed=True)['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],3)
+        self.assertTrue(self.snapshot()['workspace']['courses_view'][0]['exercise_credits'])
+        result=self.action(action='courses-batch',revision=result['revision'],course_ids=[key],purpose='exercise_nocredit')['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],0)
+        self.assertFalse(result['courses_view'][0]['exercise_credits'])
+        result=self.action(action='courses-batch',revision=result['revision'],course_ids=[key],purpose='exercise_credit')['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],3)
+        with self.assertRaises(ConsoleError):
+            self.action(action='course-save',revision=result['revision'],course_id=key,exercise=True,exercise_credits='true',will_exam=False)
+
+    def test_auto_credit_mode_tracks_source_and_manual_override(self):
+        data=copy.deepcopy(self.base);data['courses']=[{'id':'c','name':'Course','credit_value':1.25,'active':True,'confirmed_enrollment':True}]
+        store=self.campo.store(self.user);store.save(self.account,data);store.close()
+        revision=self.snapshot()['workspace']['revision']
+        def save(revision,**extra):
+            return self.action(action='course-save',revision=revision,course_id='c',will_exam=True,**extra)['workspace']
+        result=save(revision,credits=1.25,credits_auto=True)
+        self.assertEqual(result['courses_view'][0]['credits_source'],'enrollment')
+        result=save(result['revision'],credits=2.75,credits_auto=False)
+        data['courses'][0]['credit_value']=4.5
+        store=self.campo.store(self.user);store.save(self.account,data);store.close()
+        row=self.snapshot()['workspace']['courses_view'][0]
+        self.assertEqual((row['credits'],row['credits_source']),(2.75,'manual'))
+        result=save(result['revision'],credits=None,credits_auto=True)
+        row=result['courses_view'][0];self.assertEqual((row['credits'],row['credits_source']),(4.5,'enrollment'))

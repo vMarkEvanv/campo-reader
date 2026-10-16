@@ -1,122 +1,121 @@
-"""Campo Reader Windows desktop entry point (no shell, no device console)."""
+"""Campo Reader desktop: local Python backend + Microsoft WebView2. No Qt."""
 import json
 import os
 import sys
 import tempfile
+import threading
 from pathlib import Path
-
 from version import VERSION
+
 def resources():return Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 def data_directory():
  path=Path(os.environ.get('LOCALAPPDATA',str(Path.home()/'.local/share')))/'CampoReader'
  path.mkdir(parents=True,exist_ok=True);return path
 
-def self_test(report_path):
- """Run on the actual Windows bundle, including the bundled browser and Qt window."""
- result={'version':VERSION,'platform':sys.platform}
+def attach_navigation(window,origin):
+ from desktop_runtime import local_navigation
+ import webbrowser
+ def ready():
+  control=window.native.webview
+  def navigate(sender,args):
+   url=str(args.Uri)
+   if not local_navigation(url,origin):
+    args.Cancel=True
+    if url.startswith('https://'):webbrowser.open(url)
+  control.NavigationStarting+=navigate
+  # Keep the Python delegate alive for the native control's entire lifetime.
+  window._campo_navigation=navigate
+ window.events.before_show+=ready
+
+def run_window(root,report=None):
+ import webview
+ from server import DesktopServer
+ from desktop_runtime import DesktopLock,open_data,message,ensure_webview2
+ from desktop_updates import UpdateController
+ if sys.platform!='win32':raise RuntimeError('The desktop shell requires Windows WebView2')
+ if not ensure_webview2(resources()):
+  message('缺少必要的运行组件。请联网重新运行安装程序，完成后再打开应用。');return 2
+ lock=DesktopLock(root)
+ if not lock.acquire():message('Campo Reader 已在运行，请查看任务栏。');return 0
+ result={'version':VERSION,'platform':sys.platform,'renderer':'edgechromium','ok':False};srv=None;updates=None
  try:
-  import http.client
-  from server import DesktopServer
-  from campo_backend.browser import launch_browser
-  from playwright.sync_api import sync_playwright
-  with tempfile.TemporaryDirectory(prefix='campo-smoke-') as temp:
-   srv=DesktopServer(Path(temp),resources()/'public');srv.start()
-   try:
-    c=http.client.HTTPConnection(srv.address);c.request('GET','/launch?token='+srv.secret);r=c.getresponse();cookie=r.getheader('Set-Cookie').split(';')[0];r.read();c.close()
-    c=http.client.HTTPConnection(srv.address);c.request('GET','/api/campo',headers={'Cookie':cookie});r=c.getresponse();assert r.status==200;assert json.loads(r.read())['accounts']==[];c.close();result['loopback_api']=True
-    with sync_playwright() as pw:
-     browser=launch_browser(pw);page=browser.new_page();page.set_content('<title>Campo test</title>');assert page.title()=='Campo test';browser.close();result['bundled_chromium']=True
-    from PySide6.QtCore import QTimer,QUrl
-    from PySide6.QtWidgets import QApplication
-    from PySide6.QtWebEngineWidgets import QWebEngineView
-    app=QApplication.instance() or QApplication([]);view=QWebEngineView()
-    from desktop_updates import UpdateController
-    updates=UpdateController(app,view,Path(temp),resources());updates.show(check=False);result['update_dialog']=updates.dialog.check.text()=='检查更新'
-    app.aboutToQuit.connect(updates.shutdown)
-    from PySide6.QtCore import QThread
-    def worker_checked(value):
-     result['update_worker_on_ui_thread']=value=='ok' and QThread.currentThread()==app.thread()
-    updates.work(lambda event,progress:'ok',worker_checked,lambda message:None)
-    def loaded(ok):
-     result['desktop_page_loaded']=bool(ok);QTimer.singleShot(100,app.quit)
-    view.loadFinished.connect(loaded);view.resize(1280,850);view.show();view.load(QUrl(srv.launch_url));QTimer.singleShot(25000,app.quit);app.exec();view.close()
-    assert result.get('desktop_page_loaded'),'Desktop page did not load'
-    assert result.get('update_worker_on_ui_thread'),'Update worker did not return on UI thread'
-   finally:srv.close()
-  result['ok']=True
- except Exception as exc:result.update(ok=False,error_type=type(exc).__name__)
- Path(report_path).write_text(json.dumps(result,indent=2),encoding='utf-8')
- return 0 if result.get('ok') else 1
+  window=None
+  def show_updates():
+   if window:window.evaluate_js("window.dispatchEvent(new Event('campo-update-open'))")
+  srv=DesktopServer(root,resources()/'public',lambda:open_data(root),show_updates)
+  window=webview.create_window('Campo Reader',srv.launch_url,width=1420,height=940,min_size=(860,640),background_color='#101315',text_select=True,zoomable=True)
+  updates=UpdateController(root,resources(),notify=show_updates,quit_app=window.destroy,is_syncing=lambda:any(j.get('running') for j in srv.campo.jobs.values()))
+  srv.updates=updates;attach_navigation(window,srv.origin)
+  webview.settings.update(ALLOW_DOWNLOADS=True,ALLOW_FILE_URLS=False,OPEN_EXTERNAL_LINKS_IN_BROWSER=True,OPEN_DEVTOOLS_IN_DEBUG=False)
+  srv.start()
+  if report:
+   def verify_chrome():result['native_menu_removed']=not any(str(control.GetType().Name)=='MenuStrip' for control in window.native.Controls)
+   window.events.before_show+=verify_chrome
+  def background():
+   if not window.events.loaded.wait(45):
+    if report:result['error_type']='PageLoadTimeout';window.destroy()
+    return
+   if report:
+    try:
+     import time
+     deadline=time.monotonic()+30
+     while time.monotonic()<deadline:
+      value=window.evaluate_js("JSON.stringify({ready:document.getElementById('sync')&&!document.getElementById('sync').disabled,loaded:!!document.getElementById('week').children.length,updates:!!document.querySelector('.desktop-update-dialog')})")
+      value=json.loads(value)
+      if value['loaded'] and value['updates']:break
+      time.sleep(.2)
+     assert value['loaded'] and value['updates'],'Main page or update UI did not load'
+     result.update(desktop_page_loaded=True,update_dialog=True,loopback_api=True)
+     window.evaluate_js("document.querySelector('[data-desktop-menu-trigger]').click()")
+     result['app_menu_opened']=bool(window.evaluate_js("!document.querySelector('.desktop-app-menu').hidden"))
+     window.evaluate_js("document.querySelector('[data-desktop-menu-trigger]').click()")
+     # Native select keyboard popup, then close: exercises the formerly problematic path.
+     window.evaluate_js("document.getElementById('tab-grades').click();document.getElementById('grade-kind').focus()")
+     import ctypes
+     ctypes.windll.user32.keybd_event(0x73,0,0,0);ctypes.windll.user32.keybd_event(0x73,0,2,0)
+     time.sleep(.3);ctypes.windll.user32.keybd_event(0x1B,0,0,0);ctypes.windll.user32.keybd_event(0x1B,0,2,0)
+     result['dropdown_exercised']=bool(window.evaluate_js("!!document.getElementById('grade-kind')"))
+     window.evaluate_js("window.dispatchEvent(new Event('campo-update-open'))")
+     time.sleep(.3)
+     result['update_dialog_opened']=bool(window.evaluate_js("document.querySelector('.desktop-update-dialog').open"))
+     from campo_backend.browser import launch_browser
+     from playwright.sync_api import sync_playwright
+     with sync_playwright() as pw:
+      browser=launch_browser(pw);page=browser.new_page();page.set_content('<title>Campo test</title>');assert page.title()=='Campo test';browser.close()
+     result['bundled_chromium']=True
+     result['ok']=all(result.get(k) for k in ('desktop_page_loaded','update_dialog','dropdown_exercised','update_dialog_opened','bundled_chromium','native_menu_removed','app_menu_opened'))
+    except Exception as exc:result['error_type']=type(exc).__name__
+    finally:window.destroy()
+   else:
+    threading.Event().wait(5)
+    updates.auto_check()
+  webview.start(background,gui='edgechromium',private_mode=True,storage_path=str(Path(root)/'webview-cache'),icon=str(resources()/'packaging/campo.ico'))
+ finally:
+  if updates:updates.shutdown()
+  if srv and hasattr(srv,'http_thread'):srv.close()
+  lock.release()
+  if report:Path(report).write_text(json.dumps(result,indent=2),encoding='utf-8')
+ return (0 if result['ok'] else 1) if report else 0
 
 def main():
  from campo_backend.browser import configure_browser
  configure_browser()
+ if '--software-rendering' in sys.argv:
+  os.environ['WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS']=(os.environ.get('WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS','')+' --disable-gpu').strip()
  if len(sys.argv)>2 and sys.argv[1]=='--apply-update':
   import argparse
   from updater import apply_update
   parser=argparse.ArgumentParser();parser.add_argument('--apply-update');parser.add_argument('--sha256');parser.add_argument('--size',type=int);parser.add_argument('--wait-pid',type=int);parser.add_argument('--target-dir');args=parser.parse_args()
   apply_update(args.apply_update,args.sha256,args.size,args.wait_pid,args.target_dir,data_directory());return 0
- if len(sys.argv)>2 and sys.argv[1]=='--self-test':return self_test(sys.argv[2])
- from PySide6.QtCore import QLockFile,QObject,Signal,QUrl,Qt,QTimer
- from PySide6.QtGui import QDesktopServices,QIcon,QAction
- from PySide6.QtWidgets import QApplication,QMainWindow,QFileDialog,QMessageBox
- from PySide6.QtWebEngineCore import QWebEnginePage,QWebEngineProfile
- from PySide6.QtWebEngineWidgets import QWebEngineView
- from server import DesktopServer
- app=QApplication(sys.argv);app.setApplicationName('Campo Reader');app.setApplicationVersion(VERSION);app.setOrganizationName('CampoReader')
- root=data_directory();lock=QLockFile(str(root/'app.lock'));lock.setStaleLockTime(0)
- if not lock.tryLock(100):
-  QMessageBox.information(None,'Campo Reader','程序已经运行，请查看任务栏中的 Campo Reader 窗口。');return 0
- class Bridge(QObject):
-  open_data=Signal()
-  check_updates=Signal()
- bridge=Bridge();bridge.open_data.connect(lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(str(root))))
- srv=DesktopServer(root,resources()/'public',bridge.open_data.emit,bridge.check_updates.emit);srv.start()
- class Page(QWebEnginePage):
-  def acceptNavigationRequest(self,url,kind,is_main):
-   value=url.toString()
-   if value.startswith(srv.origin+'/') or value.startswith('blob:'+srv.origin+'/') or value=='about:blank':return True
-   if url.scheme() in ('https','mailto'):
-    QDesktopServices.openUrl(url)
-    if getattr(self,'is_popup',False):QTimer.singleShot(0,self.parent().close)
-   return False
-  def createWindow(self,kind):
-   popup=QWebEngineView();popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose);page=Page(self.profile(),popup);page.is_popup=True;popup.setPage(page);popup.resize(1000,780);popup.show();window.popups.append(popup);return page
- profile=QWebEngineProfile(app) # off-the-record: no persistent web cookies or browser history
- window=QMainWindow();window.popups=[];window.setWindowTitle('Campo Reader');window.resize(1420,940);window.setMinimumSize(860,640)
- icon=QIcon(str(resources()/'public/campo-icon.svg'));app.setWindowIcon(icon);window.setWindowIcon(icon)
- view=QWebEngineView();page=Page(profile,view);view.setPage(page);window.setCentralWidget(view)
- def download(request):
-  url=request.url().toString()
-  if not(url.startswith(srv.origin+'/') or url.startswith('blob:'+srv.origin+'/')):request.cancel();return
-  filename=request.suggestedFileName() or 'Campo-document.pdf'
-  path,_=QFileDialog.getSaveFileName(window,'保存证明 PDF',str(Path.home()/'Downloads'/filename),'PDF 文件 (*.pdf);;所有文件 (*)')
-  if not path:request.cancel();return
-  request.setDownloadDirectory(str(Path(path).parent));request.setDownloadFileName(Path(path).name);request.accept()
- profile.downloadRequested.connect(download)
- from desktop_updates import UpdateController
- updates=UpdateController(app,window,root,resources(),lambda:any(job.get('running') for job in srv.campo.jobs.values()))
- bridge.check_updates.connect(updates.show)
- app.aboutToQuit.connect(updates.shutdown)
- QTimer.singleShot(5000,updates.auto_check)
- menu=window.menuBar().addMenu('应用')
- def action(label,fn,shortcut=None):
-  a=QAction(label,window);a.triggered.connect(fn)
-  if shortcut:a.setShortcut(shortcut)
-  menu.addAction(a)
- action('重新加载',view.reload,'Ctrl+R');action('打开本地数据文件夹',bridge.open_data.emit)
- action('检查更新',lambda:updates.show())
- action('关于',lambda:QMessageBox.information(window,'关于 Campo Reader','Campo Reader '+VERSION+'\n独立 Windows 桌面版\n数据保存在本机；与 Orange Pi 版本相互独立。\n关闭应用后，本机自动同步随之停止。\n第三方许可见安装目录 THIRD_PARTY_NOTICES.md。'))
- action('退出',window.close,'Ctrl+Q')
- app.aboutToQuit.connect(srv.close);view.load(QUrl(srv.launch_url));window.show()
- code=app.exec();view.setPage(QWebEnginePage(view));page.deleteLater();lock.unlock();return code
+ if len(sys.argv)>2 and sys.argv[1]=='--self-test':
+  with tempfile.TemporaryDirectory(prefix='campo-smoke-') as root:return run_window(Path(root),sys.argv[2])
+ return run_window(data_directory())
 
 if __name__=='__main__':
  try:raise SystemExit(main())
  except Exception as exc:
-  # No exception text, paths with tokens, request bodies or user data in logs.
   try:
    folder=data_directory();(folder/'startup-error.txt').write_text(type(exc).__name__,encoding='utf-8')
-   import ctypes
-   if sys.platform=='win32':ctypes.windll.user32.MessageBoxW(None,'启动失败。请重新安装；你的本地数据会保留。','Campo Reader',16)
+   from desktop_runtime import message
+   message('启动失败。请重新运行安装程序修复组件；已有数据会保留。')
   finally:raise SystemExit(1)

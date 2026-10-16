@@ -30,7 +30,7 @@ def string(value, maximum=200, required=False):
     return value.strip()
 def number(value, maximum=1000):
     if type(value) not in (int,float) or not 0 <= value <= maximum: raise ConsoleError('学分必须是合理的非负数字。')
-    return float(value)
+    return round(float(value),2)
 def credits(value):
     s=str(value).strip().replace(',','.')
     return float(s) if re.fullmatch(r'\d+(?:\.\d+)?',s) else None
@@ -125,7 +125,15 @@ def course_module(row,modules):
     matches=[m for m in modules if name and course_name(m.get('name',''))==name]
     return (matches[0],'name') if len(matches)==1 else (None,'ambiguous' if matches else '')
 
-def course_list(data,state):
+def course_credit_value(row,choice,module,personal):
+    if choice.get('credits') is not None and not choice.get('credits_auto',False):return choice['credits'],'manual'
+    if row.get('credit_value') is not None:return row['credit_value'],'enrollment'
+    if row.get('planner_credits') is not None:return row['planner_credits'],'study_planner_course'
+    if module and module.get('credit_value') is not None:return module['credit_value'],'module'
+    if personal.get('credits') is not None:return personal['credits'],'planned'
+    return None,'unknown'
+
+def course_list(data,state,modules=None):
     raw=data.get('courses')
     if raw is None:
         raw=[];seen=set();now=datetime.now(BERLIN)
@@ -145,7 +153,9 @@ def course_list(data,state):
     choices=state.get('course_choices',{})
     for key,choice in choices.items():
         if key not in rows and choice.get('source_snapshot'):rows[key]=dict(choice['source_snapshot'],active=False)
-    modules=module_list(data)
+    modules=module_list(data) if modules is None else modules
+    from .campo_planner import credit_lookup,credit_index
+    planner_index=credit_index(data.get('study_planner',{}))
     for key,row in rows.items():
         choice=choices.get(key,{})
         match,method=course_module(row,modules)
@@ -153,32 +163,43 @@ def course_list(data,state):
         module=next((m for m in modules if m['id']==explicit),None) if explicit else match
         default_module=module['id'] if module else ''
         link=explicit or default_module
+        personal={}
         if explicit.startswith('planned:'):
             personal=next((p for p in state.get('planned',[]) if p['id']==explicit[8:]),{})
             module=next((m for m in modules if m['id']==personal.get('module_id')),None)
         row.update(module_override=explicit,broken_link=bool(explicit and explicit!='none' and not module and not any(p['id']==explicit[8:] for p in state.get('planned',[]) if explicit.startswith('planned:'))),completed=bool(module and module['passed']),matched_module_name=module['name'] if module else '',match_source='manual' if explicit else method)
-        row.update(exercise=choice.get('exercise',False),will_exam=choice.get('will_exam'),group=choice.get('group',''),credits=choice.get('credits',row.get('credit_value')),module_id=link,ongoing=choice.get('ongoing',True),confirmed=row.get('confirmed_enrollment',False) or choice.get('confirmed',False))
+        planner_value,planner_unit,planner_source=credit_lookup(data.get('study_planner',{}),row,index=planner_index)
+        if row.get('credit_value') is None and planner_value is not None:
+            row.update(planner_credits=planner_value,planner_unit_id=planner_unit)
+        automatic,automatic_source=course_credit_value(row,{},module,personal)
+        row.update(automatic_credits=automatic,automatic_credits_source=automatic_source)
+        credit_value,credit_source=course_credit_value(row,choice,module,personal)
+        row.update(credits_source=credit_source,exercise_credits=choice.get('exercise_credits',False),exercise=choice.get('exercise',False),will_exam=choice.get('will_exam'),group=choice.get('group',''),credits=credit_value,module_id=link,ongoing=choice.get('ongoing',True),confirmed=row.get('confirmed_enrollment',False) or choice.get('confirmed',False))
     for row in rows.values():row['classified']=bool(row.get('exercise')) or type(row.get('will_exam')) is bool
     return list(rows.values())
+
+def credit_intent(row):
+    """Credited exercises can earn credit without an examination; legacy exercises cannot."""
+    return row.get('exercise_credits',False) is True if row.get('exercise') else row.get('will_exam') is True
 
 def effective_assignments(data,state,courses):
     result=dict(state.get('assignments',{}));valid={g['id'] for g in state.get('groups',[])}
     proposed=defaultdict(set)
     for row in courses:
-        if row.get('will_exam') is True and not row.get('exercise') and row.get('group') in valid:
+        if credit_intent(row) and row.get('group') in valid:
             link=row.get('module_id','')
             if link.startswith('planned:'):
                 personal=next((p for p in state.get('planned',[]) if p['id']==link[8:]),{})
                 link=personal.get('module_id','')
             if link:proposed[link].add(row['group'])
     for p in state.get('planned',[]):
-        if p.get('will_exam') is True and not p.get('exercise') and p.get('module_id') and p.get('group') in valid:proposed[p['module_id']].add(p['group'])
+        if credit_intent(p) and p.get('module_id') and p.get('group') in valid:proposed[p['module_id']].add(p['group'])
     for key,values in proposed.items():
         if key not in result and len(values)==1:result[key]=next(iter(values))
     return result
 
-def progress_statistics(data,state,courses):
-    modules=module_list(data);by_id={m['id']:m for m in modules};passed={m['id'] for m in modules if m['passed']}
+def progress_statistics(data,state,courses,modules=None):
+    modules=module_list(data) if modules is None else modules;by_id={m['id']:m for m in modules};passed={m['id'] for m in modules if m['passed']}
     groups={g['id']:dict(g,earned=0.,ongoing=0.,unknown_earned=0,ongoing_modules=[]) for g in state['groups']}
     effective=effective_assignments(data,state,courses)
     for m in modules:
@@ -188,18 +209,18 @@ def progress_statistics(data,state,courses):
             else:group['earned']+=m['credit_value']
     planned={p['id']:p for p in state['planned']};candidates=[]
     for p in state['planned']:
-        if p.get('exercise') or p.get('status')!='ongoing' or p.get('will_exam') is not True:continue
+        if p.get('status')!='ongoing' or not credit_intent(p):continue
         link=p.get('module_id','');module=by_id.get(link)
         if module and module['passed']:continue
         candidates.append({'key':'module:'+link if module else 'planned:'+p['id'],'name':p['name'],'group':p['group'],'credits':module['credit_value'] if module and module['credit_value'] is not None else p.get('credits'),'course':None})
     for row in courses:
         reason=''
         if row.get('broken_link'):reason='broken_link'
-        elif row.get('exercise'):reason='exercise'
+        elif row.get('exercise') and not row.get('exercise_credits'):reason='exercise'
         elif not row.get('active'):reason='inactive'
         elif not row.get('ongoing'):reason='not_ongoing'
-        elif row.get('will_exam') is False:reason='interest'
-        elif row.get('will_exam') is not True:reason='undecided'
+        elif not row.get('exercise') and row.get('will_exam') is False:reason='interest'
+        elif not credit_intent(row):reason='undecided'
         elif not row.get('confirmed'):reason='unconfirmed'
         elif row.get('group') not in groups:reason='no_group'
         link=row.get('module_id','');module=by_id.get(link)
@@ -208,7 +229,7 @@ def progress_statistics(data,state,courses):
         value=module['credit_value'] if module and module['credit_value'] is not None else row.get('credits')
         row['count_reason']=reason
         if reason:continue
-        key='module:'+link if module else link if link.startswith('planned:') and link[8:] in planned else 'subject:'+stable(row.get('number') or course_name(row.get('name','')))
+        key='module:'+link if module else link if link.startswith('planned:') and link[8:] in planned else 'subject:'+stable(row.get('number') or row.get('planner_unit_id') or course_name(row.get('name','')))
         if key.startswith('planned:'):
             p=planned[key[8:]]
             linked=by_id.get(p.get('module_id',''))
@@ -232,19 +253,21 @@ def progress_statistics(data,state,courses):
         value=next(iter(values));group['ongoing']+=value;group['ongoing_modules'].append({'id':key,'name':first['name'],'credits':value})
         for r in bucket:
             if r['course'] is not None:r['course']['count_reason']='counted' if len(bucket)==1 else 'merged'
+    for group in groups.values():
+        group['earned']=round(group['earned'],2);group['ongoing']=round(group['ongoing'],2)
     return list(groups.values())
 
 def snapshot(store,account,data):
     state=plan(store,account)
-    courses=course_list(data,state)
-    statistics=progress_statistics(data,state,courses)
-    rows=store.db.execute('SELECT id,payload,created,seen FROM changes WHERE account_id=? ORDER BY created DESC,rowid DESC LIMIT 500',(account,)).fetchall()
+    modules=module_list(data)
+    courses=course_list(data,state,modules)
+    statistics=progress_statistics(data,state,courses,modules)
     documents=store.db.execute('SELECT id,title,term,category,language,source,length(content),created,deleted FROM documents WHERE account_id=? ORDER BY created DESC',(account,)).fetchall()
-    return dict(state,effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,changes=[dict(json.loads(raw),id=key,created=created,seen=bool(seen)) for key,raw,created,seen in rows],
-        unread=store.db.execute('SELECT COUNT(*) FROM changes WHERE account_id=? AND seen=0',(account,)).fetchone()[0],
+    return dict(state,effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,
         documents=[dict(zip(('id','title','term','category','language','source','size','created','deleted'),row)) for row in documents],
-        modules=module_list(data),exams_view=exam_list(data,state['exams']),
+        modules=modules,exams_view=exam_list(data,state['exams']),
         official_summaries=[g for g in data.get('grades',[]) if g.get('kind')=='program'])
+
 
 def date_value(value):
     value=string(value,40)
@@ -276,14 +299,14 @@ def mutate(store,account,payload):
         initial=plan(store,account)
         if payload.get('revision')!=initial['revision']:raise ConsoleError('其他页面已修改，请刷新后重试。',409)
         ids=payload.get('course_ids');purpose=payload.get('purpose')
-        if not isinstance(ids,list) or not 1<=len(ids)<=200 or any(not isinstance(k,str) or len(k)>64 for k in ids) or len(set(ids))!=len(ids) or purpose not in ('exam','interest','exercise','undecided'):raise ConsoleError('批量分类参数不正确。')
+        if not isinstance(ids,list) or not 1<=len(ids)<=200 or any(not isinstance(k,str) or len(k)>64 for k in ids) or len(set(ids))!=len(ids) or purpose not in ('exam','interest','exercise','exercise_credit','exercise_nocredit','undecided'):raise ConsoleError('批量分类参数不正确。')
         data=store.read(account)
         source={r['id']:r for r in course_list(data,initial)}
         initial['assignments']=effective_assignments(data,initial,list(source.values()))
         if any(k not in source for k in ids):raise ConsoleError('课程列表已更新，请刷新。',409)
         for key in ids:
             row=source[key];choice=dict(initial['course_choices'].get(key,{}))
-            choice.update(will_exam=True if purpose=='exam' else None if purpose=='undecided' else False,exercise=purpose=='exercise')
+            choice.update(will_exam=True if purpose=='exam' else None if purpose=='undecided' else False,exercise=purpose in ('exercise','exercise_credit','exercise_nocredit'),exercise_credits=purpose=='exercise_credit')
             choice.setdefault('source_snapshot',{k:row.get(k) for k in ('id','name','number','semester','status','kind','credit_value','module_number','source','active','confirmed_enrollment')})
             initial['course_choices'][key]=choice
         initial['revision']+=1
@@ -328,13 +351,15 @@ def mutate(store,account,payload):
         if module_id and module_id!='none' and module_id not in valid:raise ConsoleError('对应模块不存在。')
         value=payload.get('credits')
         if value is not None:value=number(value,60)
-        for field in ('ongoing','confirmed','exercise'):
+        if type(payload.get('credits_auto',False)) is not bool:raise ConsoleError('学分来源不正确。')
+        if payload.get('credits_auto'):value=None
+        for field in ('ongoing','confirmed','exercise','exercise_credits'):
             if type(payload.get(field,True)) is not bool:raise ConsoleError('课程状态不正确。')
         original={k:source.get(k) for k in ('id','name','number','semester','status','kind','credit_value','module_number','source','active','confirmed_enrollment')}
         linked=next((m for m in module_list(data) if m['id']==module_id),None)
         if not module_id:linked=course_module(source,module_list(data))[0]
-        if linked and group and will_exam is True and not payload.get('exercise'):current['assignments'].setdefault(linked['id'],group)
-        current['course_choices'][key]={'exercise':payload.get('exercise',False),'will_exam':will_exam,'group':group,'credits':value,'module_id':module_id,'ongoing':payload.get('ongoing',True),'confirmed':payload.get('confirmed',False),'source_snapshot':original}
+        if linked and group and credit_intent(payload):current['assignments'].setdefault(linked['id'],group)
+        current['course_choices'][key]={'exercise_credits':bool(payload.get('exercise') and payload.get('exercise_credits',False)),'exercise':payload.get('exercise',False),'will_exam':will_exam,'group':group,'credits_auto':bool(payload.get('credits_auto') or value is None),'credits':value,'module_id':module_id,'ongoing':payload.get('ongoing',True),'confirmed':payload.get('confirmed',False),'source_snapshot':original}
     elif action=='plan-save':
         groups=payload.get('groups');assignments=payload.get('assignments');planned=payload.get('planned')
         if not isinstance(groups,list) or len(groups)>40 or not isinstance(assignments,dict) or len(assignments)>1000 or not isinstance(planned,list) or len(planned)>200:raise ConsoleError('规划格式或数量不正确。')
@@ -354,10 +379,10 @@ def mutate(store,account,payload):
             if planned_id in planned_ids:raise ConsoleError('待修模块标识重复。')
             planned_ids.add(planned_id)
             if row.get('will_exam') is not None and type(row.get('will_exam')) is not bool:raise ConsoleError('请选择考试意向。')
-            if type(row.get('exercise',False)) is not bool:raise ConsoleError('课程用途不正确。')
+            if type(row.get('exercise',False)) is not bool or type(row.get('exercise_credits',False)) is not bool:raise ConsoleError('课程用途不正确。')
             module_id=string(row.get('module_id',''),80)
             if module_id and module_id not in {m['id'] for m in module_list(store.read(account))}:raise ConsoleError('对应的成绩模块不存在。')
-            clean_planned.append({'exercise':row.get('exercise',False),'will_exam':row.get('will_exam'),'module_id':module_id,'id':planned_id,'name':string(row.get('name'),160,True),'credits':number(row.get('credits'),60),'group':row['group'],'semester':string(row.get('semester',''),80),'status':string(row.get('status','planned'),30)})
+            clean_planned.append({'exercise_credits':bool(row.get('exercise') and row.get('exercise_credits',False)),'exercise':row.get('exercise',False),'will_exam':row.get('will_exam'),'module_id':module_id,'id':planned_id,'name':string(row.get('name'),160,True),'credits':number(row.get('credits'),60),'group':row['group'],'semester':string(row.get('semester',''),80),'status':string(row.get('status','planned'),30)})
         removed={p['id']:p for p in current['planned'] if p['id'] not in planned_ids}
         for choice in current.get('course_choices',{}).values():
             link=choice.get('module_id','')

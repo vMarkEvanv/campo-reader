@@ -1,4 +1,6 @@
 """Private loopback server for the desktop window. Never binds the LAN."""
+import gzip
+import hashlib
 import hmac
 import json
 import secrets
@@ -17,6 +19,8 @@ ASSETS={
  '/campo-workspace.js':('campo-workspace.js','text/javascript; charset=utf-8'),
  '/campo-reader.css':('campo-reader.css','text/css; charset=utf-8'),
  '/work-theme.css':('work-theme.css','text/css; charset=utf-8'),
+ '/desktop-update.js':('desktop-update.js','text/javascript; charset=utf-8'),
+ '/desktop-update.css':('desktop-update.css','text/css; charset=utf-8'),
  '/campo-icon.svg':('campo-icon.svg','image/svg+xml')}
 
 class Handler(BaseHTTPRequestHandler):
@@ -27,6 +31,15 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(status)
   for k,v in {'Content-Type':kind,'Content-Length':str(len(raw)),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",**(headers or {})}.items():self.send_header(k,v)
   self.end_headers();self.wfile.write(raw)
+ def asset(self,path,kind):
+  raw=path.read_bytes()
+  compressed=len(raw)>1024 and 'gzip' in [v.strip() for v in self.headers.get('Accept-Encoding','').split(',')]
+  etag='"'+hashlib.sha256(raw).hexdigest()+('-gz' if compressed else '')+'"'
+  headers={'ETag':etag,'Cache-Control':'private, no-cache','Vary':'Accept-Encoding'}
+  if self.headers.get('If-None-Match')==etag:
+   self.reply(304,b'',kind,headers);return
+  if compressed:raw=gzip.compress(raw,compresslevel=4);headers['Content-Encoding']='gzip'
+  self.reply(200,raw,kind,headers)
  def validate(self,write=False):
   if self.headers.get('Host')!=self.server.address:raise ConsoleError('此接口仅供本机应用使用。',403)
   if self.headers.get('Sec-Fetch-Site')=='cross-site':raise ConsoleError('请求来源不正确。',403)
@@ -51,11 +64,15 @@ class Handler(BaseHTTPRequestHandler):
     self.reply(200,{'mode':'desktop' if getattr(self.server,'desktop',True) else 'web'});return
    if parts.path in ('/','/favicon.ico'):
     self.reply(302,b'',headers={'Location':'/tools/campo-reader' if parts.path=='/' else '/campo-icon.svg'});return
+   if parts.path in ('/desktop-update.js','/desktop-update.css') and not getattr(self.server,'desktop',True):raise ConsoleError('接口不存在。',404)
    if parts.path in ASSETS:
-    name,kind=ASSETS[parts.path];self.reply(200,(self.server.public/name).read_bytes(),kind);return
+    name,kind=ASSETS[parts.path];self.asset(self.server.public/name,kind);return
    query=parse_qs(parts.query);account=query.get('id',[None])[0];campo=self.server.campo
+   if parts.path=='/api/desktop/update':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    self.reply(200,dict(self.server.updates.status(),csrf=campo.csrf));return
    if parts.path=='/api/campo':
-    self.reply(200,dict(campo.snapshot(campo.public_user,account),csrf=campo.csrf));return
+    self.reply(200,dict(campo.snapshot(campo.public_user,account,lightweight=query.get('status',[''])[0]=='1'),csrf=campo.csrf));return
    if parts.path=='/api/campo/document':
     title,content=campo.document(campo.public_user,account,query.get('document_id',[''])[0])
     self.reply(200,content,'application/pdf',{'Content-Disposition':"attachment; filename=campo-document.pdf; filename*=UTF-8''"+quote(title+'.pdf',safe='')});return
@@ -66,6 +83,20 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   try:
    self.validate(write=True);parts=urlsplit(self.path)
+   if parts.path=='/api/desktop/update':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    length=int(self.headers.get('Content-Length','0'))
+    if not 0<length<=4096:raise ConsoleError('请求大小不正确。',413)
+    payload=json.loads(self.rfile.read(length))
+    if not isinstance(payload,dict):raise ConsoleError('请求格式不正确。')
+    import updater
+    try:result=self.server.updates.action(payload)
+    except updater.UpdateError as exc:raise ConsoleError(str(exc)) from None
+    self.reply(200,dict(result,csrf=self.server.campo.csrf));return
+   if parts.path=='/api/desktop/quit':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    threading.Timer(.2,self.server.updates.quit_app).start()
+    self.reply(200,{'ok':True});return
    if parts.path=='/api/desktop/check-update':
     if self.server.check_updates:self.server.check_updates()
     self.reply(200,{'ok':True});return
@@ -91,6 +122,7 @@ class DesktopServer(ThreadingHTTPServer):
  allow_reuse_address=False
  def __init__(self,data_root,public,open_data=None,check_updates=None):
   super().__init__(('127.0.0.1',0),Handler)
+  self.updates=None
   self.public=Path(public);self.campo=Campo(data_root);self.open_data=open_data;self.check_updates=check_updates
   self.secret=secrets.token_urlsafe(32);self.cookie_name='campo_'+secrets.token_hex(8)
   self.address='127.0.0.1:'+str(self.server_address[1]);self.origin='http://'+self.address

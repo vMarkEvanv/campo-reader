@@ -1,6 +1,12 @@
 name: Windows desktop build
 on:
   workflow_dispatch:
+    inputs:
+      release_channel:
+        description: Release channel (preview keeps the current stable update feed)
+        type: choice
+        options: [preview, stable]
+        default: preview
   push:
     branches: [main]
     paths: [version.py]
@@ -23,12 +29,22 @@ jobs:
         run: python -m pip install -r requirements-build.txt
       - name: Install browser included in the application
         run: python -m playwright install --only-shell chromium
+      - name: Download and verify Microsoft WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile packaging/MicrosoftEdgeWebview2Setup.exe
+          $signature = Get-AuthenticodeSignature packaging/MicrosoftEdgeWebview2Setup.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'WebView2 bootstrapper signature is invalid' }
+          $process = Start-Process packaging/MicrosoftEdgeWebview2Setup.exe -ArgumentList '/silent','/install' -PassThru -Wait
+          if ($process.ExitCode -notin @(0,3010)) { Write-Host "WebView2 bootstrapper returned $($process.ExitCode); installed runtime will be checked by executable self-test" }
       - name: Run Windows regression tests
         run: python -m unittest discover -s tests -v
       - name: Build application icon and bundle
         run: |
           python packaging/make_icon.py
           python -m PyInstaller --noconfirm --clean CampoReader.spec
+          if ($LASTEXITCODE -ne 0) { throw 'Application build failed' }
+          Copy-Item packaging/USER_GUIDE.md dist/CampoReader/README.md
       - name: Verify the actual executable and embedded browser
         shell: pwsh
         run: |
@@ -54,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release download v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern CampoReader-Setup-Windows-x64.exe --dir old-release
+          gh release download v1.2.1 --repo $env:GITHUB_REPOSITORY --pattern CampoReader-Setup-Windows-x64.exe --dir old-release
           python packaging/test_installed_update.py
           if ($LASTEXITCODE -ne 0) { throw 'Installed update integration test failed' }
           Get-ChildItem release -File | Where-Object Name -ne SHA256SUMS.txt | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content release\SHA256SUMS.txt
@@ -85,6 +101,7 @@ jobs:
       - name: Publish Windows release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ inputs.release_channel || 'preview' }}
         shell: pwsh
         run: |
           $version = python -c "from version import VERSION; print(VERSION)"
@@ -92,5 +109,9 @@ jobs:
           if ($LASTEXITCODE -eq 0) { Write-Host 'Existing release preserved; increment version.py to publish a new release'; exit 0 }
           gh release create "v$version" release/* --draft --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Campo Reader $version - Windows" --notes-file packaging/release-notes.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
-          gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($env:RELEASE_CHANNEL -eq 'stable') {
+            gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --prerelease=false --latest
+          } else {
+            gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          }
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
