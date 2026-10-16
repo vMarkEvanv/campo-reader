@@ -24,3 +24,4 @@ release-final/
 .pytest_cache/
 
 packaging/MicrosoftEdgeWebview2Setup.exe
+packaging/campo.ico
