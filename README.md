@@ -51,7 +51,7 @@ python -m venv .venv
 
 共享代码每次推送运行 Linux 回归测试。修改 `version.py` 的版本号并推送 main，或手动运行 `.github/workflows/windows.yml`，即可构建 Windows 发布包。使用 `.github/workflows/windows.yml` 在 Windows 2022 / Python 3.12 构建。
 依赖固定于 requirements*.txt。PyInstaller 输出目录包，Inno Setup 生成当前用户安装包。
-构建执行业务与本地接口测试，并直接运行打包后的 EXE 验证本地 API、内置 Chromium 和 Qt 页面加载。
+构建执行业务与本地接口测试，并直接运行打包后的 EXE 验证本地 API、内置 Chromium 和 WebView2 页面、下拉菜单路径和网页更新弹窗加载。
 
 安装包未进行商业代码签名；Windows 可能显示“未知发布者”。没有关停或绕过系统安全防护。
 
@@ -61,7 +61,7 @@ python -m venv .venv
 
 ## 软件更新（1.1 起）
 
-侧栏“软件更新”或菜单“应用 → 检查更新”打开更新窗口。默认每天在启动时检查一次，可关闭；不会自动下载安装。发现新版本后可查看说明、下载、取消，确认后退出旧程序并安装，完成后重新启动。升级保留 `%LOCALAPPDATA%\CampoReader` 中的账号、分类、会话和 PDF。
+侧栏“软件更新”或菜单“应用 → 软件更新”打开更新窗口。默认每天在启动时检查一次，可关闭；不会自动下载安装。发现新版本后可查看说明、下载、取消，确认后退出旧程序并安装，完成后重新启动。升级保留 `%LOCALAPPDATA%\CampoReader` 中的账号、分类、会话和 PDF。
 
 更新源为公开的 GitHub Releases。客户端直接检查最新版 `update.json`，按签名中的版本号下载固定发布包，处理 GitHub 官方 CDN 的 HTTPS 重定向，无需 GitHub 登录、令牌、Orange Pi 或 Tailscale。网络需能访问 GitHub 及其下载 CDN。
 
@@ -73,7 +73,7 @@ python -m venv .venv
 
 课程管理可单独刷新 Study Planner 学分。常规自动同步每天检查一次目录，手动完整同步也会更新；读取失败保留旧目录。课程按名称匹配，保留讲课与习题课的区别，优先读取课程本身的 ECTS，不把父模块的总学分复制给各个子课程。无法可靠匹配或同名学分冲突时保持未知。
 
-手动填写的学分（包括 0）优先保留；“使用自动学分”可恢复自动来源。此阶段仅部署网页版，不更改 Windows 版本或发布安装包。
+手动填写的学分（包括 0）优先保留；“使用自动学分”可恢复自动来源。这些网页改动现已纳入 1.2.0 WebView2 测试包，稳定版仍为 1.1.1。
 
 ### 网页同步提示与可选账号保存（审阅分支）
 
@@ -84,3 +84,11 @@ python -m venv .venv
 移除变化中心及新增变化记录。同步进度使用独立的轻量状态查询，完成后才取完整数据；内部 Study Planner 目录不再随页面快照传输。课程名索引及模块列表在一次快照内复用。当天已检查的学分目录、Documents 和全学期报名不反复完整抓取，专用刷新按钮仍可强制获取；课表和成绩的更新频率保持原设置。
 
 前端静态文件支持 gzip 和 ETag，每次访问校验更新，内容没变则复用浏览器缓存。可运行 `python tests/ui_regression.py` 检查桌面/手机课程编辑、筛选、自动学分及各页面切换（需要 Playwright 和 Chromium）。
+
+### Windows 1.2.0 WebView2 测试版
+
+桌面外壳使用 pywebview 6.2.1，强制选用 Microsoft WebView2（edgechromium），不安装或打包 Qt/PySide。Python 后端、网页界面和本地数据路径继续复用。更新弹窗改为网页实现，通过受同源、会话 Cookie 和 CSRF 保护的本机接口调用现有签名更新逻辑，不暴露任意 Python 执行接口。
+
+安装包检查 WebView2 Runtime，缺少时运行附带的微软安装程序（构建时校验微软数字签名），首次安装可能需要联网。免安装包也附带此安装程序。开始菜单的 compatible rendering 入口或启动参数 `--software-rendering` 可临时关闭 GPU 加速，不修改用户数据。
+
+构建工作流默认发布为 GitHub 预发布版本，保持稳定更新源不变；Windows 实际包检查与旧版覆盖升级检查通过后才发布。用户验证测试版后，可将该版本提升为稳定版本。普通开发机器可运行 `python -m unittest discover -s tests -v`；真正的 WebView2 窗口测试必须在 Windows 执行。

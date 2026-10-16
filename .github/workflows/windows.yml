@@ -1,6 +1,12 @@
 name: Windows desktop build
 on:
   workflow_dispatch:
+    inputs:
+      release_channel:
+        description: Release channel (preview keeps the current stable update feed)
+        type: choice
+        options: [preview, stable]
+        default: preview
   push:
     branches: [main]
     paths: [version.py]
@@ -23,6 +29,14 @@ jobs:
         run: python -m pip install -r requirements-build.txt
       - name: Install browser included in the application
         run: python -m playwright install --only-shell chromium
+      - name: Download and verify Microsoft WebView2 bootstrapper
+        shell: pwsh
+        run: |
+          Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile packaging/MicrosoftEdgeWebview2Setup.exe
+          $signature = Get-AuthenticodeSignature packaging/MicrosoftEdgeWebview2Setup.exe
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'Microsoft Corporation') { throw 'WebView2 bootstrapper signature is invalid' }
+          $process = Start-Process packaging/MicrosoftEdgeWebview2Setup.exe -ArgumentList '/silent','/install' -PassThru -Wait
+          if ($process.ExitCode -notin @(0,3010)) { Write-Host "WebView2 bootstrapper returned $($process.ExitCode); installed runtime will be checked by executable self-test" }
       - name: Run Windows regression tests
         run: python -m unittest discover -s tests -v
       - name: Build application icon and bundle
@@ -85,6 +99,7 @@ jobs:
       - name: Publish Windows release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_CHANNEL: ${{ inputs.release_channel || 'preview' }}
         shell: pwsh
         run: |
           $version = python -c "from version import VERSION; print(VERSION)"
@@ -92,5 +107,9 @@ jobs:
           if ($LASTEXITCODE -eq 0) { Write-Host 'Existing release preserved; increment version.py to publish a new release'; exit 0 }
           gh release create "v$version" release/* --draft --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Campo Reader $version - Windows" --notes-file packaging/release-notes.md
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }
-          gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($env:RELEASE_CHANNEL -eq 'stable') {
+            gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --prerelease=false --latest
+          } else {
+            gh release edit "v$version" --repo $env:GITHUB_REPOSITORY --draft=false --prerelease --latest=false
+          }
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

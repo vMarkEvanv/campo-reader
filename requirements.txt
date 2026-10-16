@@ -1,2 +1,3 @@
 -r requirements-web.txt
-PySide6==6.12.0
+pywebview==6.2.1
+pythonnet==3.2.1; sys_platform == "win32"

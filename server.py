@@ -19,6 +19,8 @@ ASSETS={
  '/campo-workspace.js':('campo-workspace.js','text/javascript; charset=utf-8'),
  '/campo-reader.css':('campo-reader.css','text/css; charset=utf-8'),
  '/work-theme.css':('work-theme.css','text/css; charset=utf-8'),
+ '/desktop-update.js':('desktop-update.js','text/javascript; charset=utf-8'),
+ '/desktop-update.css':('desktop-update.css','text/css; charset=utf-8'),
  '/campo-icon.svg':('campo-icon.svg','image/svg+xml')}
 
 class Handler(BaseHTTPRequestHandler):
@@ -62,9 +64,13 @@ class Handler(BaseHTTPRequestHandler):
     self.reply(200,{'mode':'desktop' if getattr(self.server,'desktop',True) else 'web'});return
    if parts.path in ('/','/favicon.ico'):
     self.reply(302,b'',headers={'Location':'/tools/campo-reader' if parts.path=='/' else '/campo-icon.svg'});return
+   if parts.path in ('/desktop-update.js','/desktop-update.css') and not getattr(self.server,'desktop',True):raise ConsoleError('接口不存在。',404)
    if parts.path in ASSETS:
     name,kind=ASSETS[parts.path];self.asset(self.server.public/name,kind);return
    query=parse_qs(parts.query);account=query.get('id',[None])[0];campo=self.server.campo
+   if parts.path=='/api/desktop/update':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    self.reply(200,dict(self.server.updates.status(),csrf=campo.csrf));return
    if parts.path=='/api/campo':
     self.reply(200,dict(campo.snapshot(campo.public_user,account,lightweight=query.get('status',[''])[0]=='1'),csrf=campo.csrf));return
    if parts.path=='/api/campo/document':
@@ -77,6 +83,16 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   try:
    self.validate(write=True);parts=urlsplit(self.path)
+   if parts.path=='/api/desktop/update':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    length=int(self.headers.get('Content-Length','0'))
+    if not 0<length<=4096:raise ConsoleError('请求大小不正确。',413)
+    payload=json.loads(self.rfile.read(length))
+    if not isinstance(payload,dict):raise ConsoleError('请求格式不正确。')
+    import updater
+    try:result=self.server.updates.action(payload)
+    except updater.UpdateError as exc:raise ConsoleError(str(exc)) from None
+    self.reply(200,dict(result,csrf=self.server.campo.csrf));return
    if parts.path=='/api/desktop/check-update':
     if self.server.check_updates:self.server.check_updates()
     self.reply(200,{'ok':True});return
@@ -102,6 +118,7 @@ class DesktopServer(ThreadingHTTPServer):
  allow_reuse_address=False
  def __init__(self,data_root,public,open_data=None,check_updates=None):
   super().__init__(('127.0.0.1',0),Handler)
+  self.updates=None
   self.public=Path(public);self.campo=Campo(data_root);self.open_data=open_data;self.check_updates=check_updates
   self.secret=secrets.token_urlsafe(32);self.cookie_name='campo_'+secrets.token_hex(8)
   self.address='127.0.0.1:'+str(self.server_address[1]);self.origin='http://'+self.address

@@ -38,4 +38,4 @@ window.addEventListener('hashchange',()=>{const view=location.hash.slice(1);if(v
 load().then(()=>{const view=location.hash.slice(1);if(views.includes(view))$('tab-'+view).click();}).catch(e=>status(e.message));
 })();
 
-fetch('/api/app',{credentials:'same-origin'}).then(r=>r.json()).then(info=>{if(info.mode==='web'){['desktop-check-update','desktop-data-folder'].forEach(id=>{var item=document.getElementById(id);if(item)item.remove();});}}).catch(()=>{});
+fetch('/api/app',{credentials:'same-origin'}).then(r=>r.json()).then(info=>{if(info.mode==='web'){['desktop-check-update','desktop-data-folder'].forEach(id=>{var item=document.getElementById(id);if(item)item.remove();});}else if(info.mode==='desktop'){const script=document.createElement('script');script.src='/desktop-update.js';document.head.append(script);}}).catch(()=>{});
