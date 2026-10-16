@@ -142,16 +142,24 @@ def parse_tree(dom,modules):
     if not any(m['courses'] for m in modules):raise DataError('Study Planner 未读取到课程学分，旧目录保留。')
     return modules
 
-def credit_lookup(catalog,course):
+def credit_index(catalog):
     rows=catalog.get('modules',[]) if isinstance(catalog,dict) else []
+    result={}
+    for module in rows:
+        for course in module.get('courses',[]):
+            result.setdefault(exact_name(course.get('name','')),[]).append(course)
+    return result
+
+def credit_lookup(catalog,course,index=None):
+    index=credit_index(catalog) if index is None else index
     name=exact_name(course.get('name',''))
-    matches=[c for m in rows for c in m.get('courses',[]) if name and exact_name(c.get('name',''))==name]
-    # Exact course titles deliberately preserve lecture / exercise distinctions.
+    matches=index.get(name,[]) if name else []
     values={c['credits'] for c in matches}
     if len(values)==1:
         units={c.get('unit_id','') for c in matches}
         return next(iter(values)),next(iter(units)) if len(units)==1 else '','study_planner_course'
     return None,'','unknown'
+
 
 def collect(snapshot,expected):
     with requests.Session() as http:

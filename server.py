@@ -1,4 +1,6 @@
 """Private loopback server for the desktop window. Never binds the LAN."""
+import gzip
+import hashlib
 import hmac
 import json
 import secrets
@@ -27,6 +29,15 @@ class Handler(BaseHTTPRequestHandler):
   self.send_response(status)
   for k,v in {'Content-Type':kind,'Content-Length':str(len(raw)),'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",**(headers or {})}.items():self.send_header(k,v)
   self.end_headers();self.wfile.write(raw)
+ def asset(self,path,kind):
+  raw=path.read_bytes()
+  compressed=len(raw)>1024 and 'gzip' in [v.strip() for v in self.headers.get('Accept-Encoding','').split(',')]
+  etag='"'+hashlib.sha256(raw).hexdigest()+('-gz' if compressed else '')+'"'
+  headers={'ETag':etag,'Cache-Control':'private, no-cache','Vary':'Accept-Encoding'}
+  if self.headers.get('If-None-Match')==etag:
+   self.reply(304,b'',kind,headers);return
+  if compressed:raw=gzip.compress(raw,compresslevel=4);headers['Content-Encoding']='gzip'
+  self.reply(200,raw,kind,headers)
  def validate(self,write=False):
   if self.headers.get('Host')!=self.server.address:raise ConsoleError('此接口仅供本机应用使用。',403)
   if self.headers.get('Sec-Fetch-Site')=='cross-site':raise ConsoleError('请求来源不正确。',403)
@@ -52,10 +63,10 @@ class Handler(BaseHTTPRequestHandler):
    if parts.path in ('/','/favicon.ico'):
     self.reply(302,b'',headers={'Location':'/tools/campo-reader' if parts.path=='/' else '/campo-icon.svg'});return
    if parts.path in ASSETS:
-    name,kind=ASSETS[parts.path];self.reply(200,(self.server.public/name).read_bytes(),kind);return
+    name,kind=ASSETS[parts.path];self.asset(self.server.public/name,kind);return
    query=parse_qs(parts.query);account=query.get('id',[None])[0];campo=self.server.campo
    if parts.path=='/api/campo':
-    self.reply(200,dict(campo.snapshot(campo.public_user,account),csrf=campo.csrf));return
+    self.reply(200,dict(campo.snapshot(campo.public_user,account,lightweight=query.get('status',[''])[0]=='1'),csrf=campo.csrf));return
    if parts.path=='/api/campo/document':
     title,content=campo.document(campo.public_user,account,query.get('document_id',[''])[0])
     self.reply(200,content,'application/pdf',{'Content-Disposition':"attachment; filename=campo-document.pdf; filename*=UTF-8''"+quote(title+'.pdf',safe='')});return

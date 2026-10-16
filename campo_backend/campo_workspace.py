@@ -133,7 +133,7 @@ def course_credit_value(row,choice,module,personal):
     if personal.get('credits') is not None:return personal['credits'],'planned'
     return None,'unknown'
 
-def course_list(data,state):
+def course_list(data,state,modules=None):
     raw=data.get('courses')
     if raw is None:
         raw=[];seen=set();now=datetime.now(BERLIN)
@@ -153,7 +153,9 @@ def course_list(data,state):
     choices=state.get('course_choices',{})
     for key,choice in choices.items():
         if key not in rows and choice.get('source_snapshot'):rows[key]=dict(choice['source_snapshot'],active=False)
-    modules=module_list(data)
+    modules=module_list(data) if modules is None else modules
+    from .campo_planner import credit_lookup,credit_index
+    planner_index=credit_index(data.get('study_planner',{}))
     for key,row in rows.items():
         choice=choices.get(key,{})
         match,method=course_module(row,modules)
@@ -166,8 +168,7 @@ def course_list(data,state):
             personal=next((p for p in state.get('planned',[]) if p['id']==explicit[8:]),{})
             module=next((m for m in modules if m['id']==personal.get('module_id')),None)
         row.update(module_override=explicit,broken_link=bool(explicit and explicit!='none' and not module and not any(p['id']==explicit[8:] for p in state.get('planned',[]) if explicit.startswith('planned:'))),completed=bool(module and module['passed']),matched_module_name=module['name'] if module else '',match_source='manual' if explicit else method)
-        from .campo_planner import credit_lookup
-        planner_value,planner_unit,planner_source=credit_lookup(data.get('study_planner',{}),row)
+        planner_value,planner_unit,planner_source=credit_lookup(data.get('study_planner',{}),row,index=planner_index)
         if row.get('credit_value') is None and planner_value is not None:
             row.update(planner_credits=planner_value,planner_unit_id=planner_unit)
         automatic,automatic_source=course_credit_value(row,{},module,personal)
@@ -197,8 +198,8 @@ def effective_assignments(data,state,courses):
         if key not in result and len(values)==1:result[key]=next(iter(values))
     return result
 
-def progress_statistics(data,state,courses):
-    modules=module_list(data);by_id={m['id']:m for m in modules};passed={m['id'] for m in modules if m['passed']}
+def progress_statistics(data,state,courses,modules=None):
+    modules=module_list(data) if modules is None else modules;by_id={m['id']:m for m in modules};passed={m['id'] for m in modules if m['passed']}
     groups={g['id']:dict(g,earned=0.,ongoing=0.,unknown_earned=0,ongoing_modules=[]) for g in state['groups']}
     effective=effective_assignments(data,state,courses)
     for m in modules:
@@ -258,15 +259,15 @@ def progress_statistics(data,state,courses):
 
 def snapshot(store,account,data):
     state=plan(store,account)
-    courses=course_list(data,state)
-    statistics=progress_statistics(data,state,courses)
-    rows=store.db.execute('SELECT id,payload,created,seen FROM changes WHERE account_id=? ORDER BY created DESC,rowid DESC LIMIT 500',(account,)).fetchall()
+    modules=module_list(data)
+    courses=course_list(data,state,modules)
+    statistics=progress_statistics(data,state,courses,modules)
     documents=store.db.execute('SELECT id,title,term,category,language,source,length(content),created,deleted FROM documents WHERE account_id=? ORDER BY created DESC',(account,)).fetchall()
-    return dict(state,effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,changes=[dict(json.loads(raw),id=key,created=created,seen=bool(seen)) for key,raw,created,seen in rows],
-        unread=store.db.execute('SELECT COUNT(*) FROM changes WHERE account_id=? AND seen=0',(account,)).fetchone()[0],
+    return dict(state,effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,
         documents=[dict(zip(('id','title','term','category','language','source','size','created','deleted'),row)) for row in documents],
-        modules=module_list(data),exams_view=exam_list(data,state['exams']),
+        modules=modules,exams_view=exam_list(data,state['exams']),
         official_summaries=[g for g in data.get('grades',[]) if g.get('kind')=='program'])
+
 
 def date_value(value):
     value=string(value,40)

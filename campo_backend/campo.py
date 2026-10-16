@@ -178,7 +178,6 @@ class Campo:
                 if 'documents_sync' not in result and previous.get('documents_sync'):
                     result['documents_sync'] = previous['documents_sync']
                 with store.db:
-                    workspace.record_changes(store, account, previous, result)
                     for document in documents:
                         try: workspace.add_document(store, account, document['content'], document['title'], result.get('semester',''), document.get('category','other'), source='campo')
                         except ConsoleError:
@@ -187,17 +186,19 @@ class Campo:
                     store.db.execute('INSERT OR REPLACE INTO web_settings VALUES (?,?)', (account,json.dumps(settings)))
             finally: store.close()
 
-    def snapshot(self, user, account=None):
+    def snapshot(self, user, account=None, lightweight=False):
         with self.lock:
             store = self.store(user)
             try:
                 accounts = [{'id': key, 'label': label} for key, label in store.list_accounts()]
                 if account and not any(x['id'] == account for x in accounts):
                     raise ConsoleError('账号不存在。', 404)
+                if lightweight:return {'account':account,'job':dict(self.jobs.get((user,account),{}))}
                 payload = store.read(account) if account else {}
                 # Internal identity binding is never exposed as an API token.
                 extra = workspace.snapshot(store, account, payload) if account else None
                 payload.pop('fingerprint', None)
+                payload.pop('study_planner', None)  # Internal catalog; UI uses resolved course credits.
                 return {'accounts': accounts, 'account': account, 'data': payload, 'workspace': extra,
                         'job': dict(self.jobs.get((user, account), {})),
                         'settings': self.settings_public(store, account, payload) if account else None}
@@ -230,7 +231,7 @@ class Campo:
                     store.read(account)
                     if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh','planner-refresh','credentials-forget'):
                         raise ConsoleError('正在同步，请等待完成后再操作。', 409)
-                    if action in ('changes-read','courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
+                    if action in ('courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
                         workspace.mutate(store, account, payload)
                     elif action == 'settings':
                         minutes, enabled = payload.get('interval_minutes'), payload.get('enabled')
@@ -352,6 +353,7 @@ class Campo:
                 context = browser.new_context(storage_state=storage_state) if storage_state is not None else browser.new_context()
                 # Only official FAU HTTPS origins may receive requests or credentials.
                 def guard(route):
+                    if route.request.resource_type in ('image','font','media'):route.abort();return
                     p = urlsplit(route.request.url)
                     if p.scheme == 'https' and (p.hostname == 'fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):
                         route.continue_()
@@ -416,7 +418,7 @@ class Campo:
                         history=old_info.get('history_checked_at') or (old_info.get('checked_at','') if old_info.get('scope')=='all' else '')
                         recent=history[:10]==timestamp[:10]
                         self.progress(user,account,'正在读取课程报名…')
-                        rows,info=campo_courses.collect(page,identity,semester,current_only=automatic and recent)
+                        rows,info=campo_courses.collect(page,identity,semester,current_only=recent)
                         if info.get('scope')=='current':
                             terms={campo_courses.term_key(t) for t in info['semesters']}
                             rows=[r for r in previous.get('courses',[]) if campo_courses.term_key(r.get('semester','')) not in terms]+rows
@@ -427,7 +429,7 @@ class Campo:
                     except Exception:
                         result['courses_sync']=dict(previous.get('courses_sync',{}),last_success_at=previous.get('courses_sync',{}).get('last_success_at') or previous.get('courses_sync',{}).get('checked_at'),checked_at=workspace.stamp(),status='error',message='课程报名读取未完成，原有课程与个人选择保留。')
                     planner_check=previous.get('study_planner_sync',{}).get('checked_at','')
-                    if not automatic or planner_check[:10]!=timestamp[:10]:
+                    if planner_check[:10]!=timestamp[:10]:
                         try:
                             self.progress(user,account,'正在读取 Study Planner 学分…')
                             catalog=campo_planner.collect(context.storage_state(),identity)
@@ -437,7 +439,7 @@ class Campo:
                     self.progress(user,account,'正在读取 Documents…')
                     documents = []
                     last_check = previous.get('documents_sync',{}).get('checked_at','')
-                    if not automatic or last_check[:10] != timestamp[:10]:
+                    if last_check[:10] != timestamp[:10]:
                         try:
                             documents, result['documents_sync'] = campo_documents.collect(page, context, identity)
                             final_state = page.evaluate(scripts.STATE)
@@ -509,6 +511,7 @@ class Campo:
                 try:
                     context=browser.new_context(storage_state=saved)
                     def guard(route):
+                        if route.request.resource_type in ('image','font','media'):route.abort();return
                         p=urlsplit(route.request.url)
                         if p.scheme=='https' and (p.hostname=='fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):route.continue_()
                         else:route.abort()
@@ -557,6 +560,7 @@ class Campo:
                 try:
                     context=browser.new_context(storage_state=saved,accept_downloads=True)
                     def guard(route):
+                        if route.request.resource_type in ('image','font','media'):route.abort();return
                         p=urlsplit(route.request.url)
                         if p.scheme=='https' and (p.hostname=='fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):route.continue_()
                         else:route.abort()

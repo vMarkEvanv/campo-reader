@@ -43,4 +43,6 @@ class PlannerTests(unittest.TestCase):
             c.jobs[(u,a)]={'running':True};c.slots.acquire()
             with patch.object(c,'restore_session',return_value={}),patch('campo_backend.campo_planner.collect',side_effect=DataError('读取失败')):
                 c.sync_planner(u,a)
-            self.assertEqual(c.snapshot(u,a)['data']['study_planner'],old['study_planner'])
+            store=c.store(u)
+            try:self.assertEqual(store.read(a)['study_planner'],old['study_planner'])
+            finally:store.close()
