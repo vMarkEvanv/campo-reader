@@ -32,7 +32,6 @@ def run_window(root,report=None):
  from server import DesktopServer
  from desktop_runtime import DesktopLock,open_data,message,ensure_webview2
  from desktop_updates import UpdateController
- from webview.menu import Menu,MenuAction,MenuSeparator
  if sys.platform!='win32':raise RuntimeError('The desktop shell requires Windows WebView2')
  if not ensure_webview2(resources()):
   message('需要 Microsoft Edge WebView2 Runtime。请重新运行 Campo Reader 安装包，联网完成运行时安装。');return 2
@@ -49,8 +48,9 @@ def run_window(root,report=None):
   srv.updates=updates;attach_navigation(window,srv.origin)
   webview.settings.update(ALLOW_DOWNLOADS=True,ALLOW_FILE_URLS=False,OPEN_EXTERNAL_LINKS_IN_BROWSER=True,OPEN_DEVTOOLS_IN_DEBUG=False)
   srv.start()
-  def about():message('Campo Reader '+VERSION+'\nMicrosoft WebView2 桌面版\n数据保存在本机，与 Orange Pi 版本独立。\n关闭程序后本机自动同步停止。')
-  menu=[Menu('应用',[MenuAction('重新加载',lambda:window.load_url(srv.origin+'/tools/campo-reader')),MenuAction('软件更新',show_updates),MenuAction('打开本地数据文件夹',lambda:open_data(root)),MenuSeparator(),MenuAction('关于',about),MenuAction('退出',window.destroy)])]
+  if report:
+   def verify_chrome():result['native_menu_removed']=window.native.MainMenuStrip is None
+   window.events.before_show+=verify_chrome
   def background():
    if not window.events.loaded.wait(45):
     if report:result['error_type']='PageLoadTimeout';window.destroy()
@@ -66,6 +66,9 @@ def run_window(root,report=None):
       time.sleep(.2)
      assert value['loaded'] and value['updates'],'Main page or update UI did not load'
      result.update(desktop_page_loaded=True,update_dialog=True,loopback_api=True)
+     window.evaluate_js("document.querySelector('[data-desktop-menu-trigger]').click()")
+     result['app_menu_opened']=bool(window.evaluate_js("!document.querySelector('.desktop-app-menu').hidden"))
+     window.evaluate_js("document.querySelector('[data-desktop-menu-trigger]').click()")
      # Native select keyboard popup, then close: exercises the formerly problematic path.
      window.evaluate_js("document.getElementById('tab-grades').click();document.getElementById('grade-kind').focus()")
      import ctypes
@@ -80,13 +83,13 @@ def run_window(root,report=None):
      with sync_playwright() as pw:
       browser=launch_browser(pw);page=browser.new_page();page.set_content('<title>Campo test</title>');assert page.title()=='Campo test';browser.close()
      result['bundled_chromium']=True
-     result['ok']=all(result.get(k) for k in ('desktop_page_loaded','update_dialog','dropdown_exercised','update_dialog_opened','bundled_chromium'))
+     result['ok']=all(result.get(k) for k in ('desktop_page_loaded','update_dialog','dropdown_exercised','update_dialog_opened','bundled_chromium','native_menu_removed','app_menu_opened'))
     except Exception as exc:result['error_type']=type(exc).__name__
     finally:window.destroy()
    else:
     threading.Event().wait(5)
     updates.auto_check()
-  webview.start(background,gui='edgechromium',private_mode=True,storage_path=str(Path(root)/'webview-cache'),menu=menu,icon=str(resources()/'packaging/campo.ico'))
+  webview.start(background,gui='edgechromium',private_mode=True,storage_path=str(Path(root)/'webview-cache'),icon=str(resources()/'packaging/campo.ico'))
  finally:
   if updates:updates.shutdown()
   if srv and hasattr(srv,'http_thread'):srv.close()

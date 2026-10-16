@@ -93,6 +93,10 @@ class Handler(BaseHTTPRequestHandler):
     try:result=self.server.updates.action(payload)
     except updater.UpdateError as exc:raise ConsoleError(str(exc)) from None
     self.reply(200,dict(result,csrf=self.server.campo.csrf));return
+   if parts.path=='/api/desktop/quit':
+    if not getattr(self.server,'desktop',True) or not self.server.updates:raise ConsoleError('接口不存在。',404)
+    threading.Timer(.2,self.server.updates.quit_app).start()
+    self.reply(200,{'ok':True});return
    if parts.path=='/api/desktop/check-update':
     if self.server.check_updates:self.server.check_updates()
     self.reply(200,{'ok':True});return

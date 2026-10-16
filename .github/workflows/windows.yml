@@ -68,7 +68,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release download v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern CampoReader-Setup-Windows-x64.exe --dir old-release
+          gh release download v1.2.0 --repo $env:GITHUB_REPOSITORY --pattern CampoReader-Setup-Windows-x64.exe --dir old-release
           python packaging/test_installed_update.py
           if ($LASTEXITCODE -ne 0) { throw 'Installed update integration test failed' }
           Get-ChildItem release -File | Where-Object Name -ne SHA256SUMS.txt | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content release\SHA256SUMS.txt

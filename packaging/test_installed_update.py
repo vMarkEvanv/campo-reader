@@ -1,4 +1,4 @@
-"""Windows CI: upgrade 1.0 using the actual detached helper, then check user data."""
+"""Windows CI: upgrade 1.2.0 using the actual detached helper, then check user data."""
 import base64
 import hashlib
 import json
