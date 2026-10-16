@@ -57,7 +57,7 @@ python -m venv .venv
 
 ## 来源
 
-当前网页版模块与 https://github.com/vMarkEvanv/campo-reader 的核心解析代码。构建用私有仓库与源码工作区独立于 Orange Pi 运行目录；不会替换正在运行的服务。
+当前网页版模块与原项目 https://github.com/vMarkEvanv/campo-reader-legacy 的核心解析代码。构建用私有仓库与源码工作区独立于 Orange Pi 运行目录；不会替换正在运行的服务。
 
 ## 软件更新（1.1 起）
 

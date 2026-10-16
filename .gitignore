@@ -18,3 +18,7 @@ data/
 *.ics
 *.p12
 release-final/
+*.pdf
+*.sqlite
+*.pfx
+.pytest_cache/

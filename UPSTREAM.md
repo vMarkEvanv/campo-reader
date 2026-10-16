@@ -16,3 +16,9 @@ modules are included.
 
 No live database, credential, token, certificate, browser storage, PDF, personal
 classification or account record is copied into this repository or package.
+
+Unified repository (2026-10-16): the original campo-reader history is retained
+through a two-parent merge, alongside the Windows history. The former original
+repository is archived as vMarkEvanv/campo-reader-legacy; the active unified
+repository is vMarkEvanv/campo-reader. web.py and desktop.py use the same
+campo_backend and public resources. No BLOG application modules were imported.
