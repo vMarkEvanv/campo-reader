@@ -49,7 +49,7 @@ def run_window(root,report=None):
   webview.settings.update(ALLOW_DOWNLOADS=True,ALLOW_FILE_URLS=False,OPEN_EXTERNAL_LINKS_IN_BROWSER=True,OPEN_DEVTOOLS_IN_DEBUG=False)
   srv.start()
   if report:
-   def verify_chrome():result['native_menu_removed']=window.native.MainMenuStrip is None
+   def verify_chrome():result['native_menu_removed']=not any(str(control.GetType().Name)=='MenuStrip' for control in window.native.Controls)
    window.events.before_show+=verify_chrome
   def background():
    if not window.events.loaded.wait(45):
