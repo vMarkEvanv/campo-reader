@@ -127,3 +127,8 @@ class CourseTests(unittest.TestCase):
   self.assertEqual(w.progress_statistics(data,state,[])[0]['ongoing'],3)
   state['planned'][0].pop('exercise_credits')
   self.assertEqual(w.progress_statistics(data,state,[])[0]['ongoing'],0)
+
+ def test_fractional_credit_total_has_no_float_tail(self):
+  state={'groups':[{'id':'g','target':1}],'assignments':{},'planned':[{'id':str(i),'name':'Course '+str(i),'group':'g','credits':v,'status':'ongoing','will_exam':True} for i,v in enumerate([0.1,0.2])]}
+  self.assertEqual(w.progress_statistics({'grades':[]},state,[])[0]['ongoing'],0.3)
+  self.assertEqual(w.number(1.25),1.25)

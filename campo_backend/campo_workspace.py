@@ -30,7 +30,7 @@ def string(value, maximum=200, required=False):
     return value.strip()
 def number(value, maximum=1000):
     if type(value) not in (int,float) or not 0 <= value <= maximum: raise ConsoleError('学分必须是合理的非负数字。')
-    return float(value)
+    return round(float(value),2)
 def credits(value):
     s=str(value).strip().replace(',','.')
     return float(s) if re.fullmatch(r'\d+(?:\.\d+)?',s) else None
@@ -236,6 +236,8 @@ def progress_statistics(data,state,courses):
         value=next(iter(values));group['ongoing']+=value;group['ongoing_modules'].append({'id':key,'name':first['name'],'credits':value})
         for r in bucket:
             if r['course'] is not None:r['course']['count_reason']='counted' if len(bucket)==1 else 'merged'
+    for group in groups.values():
+        group['earned']=round(group['earned'],2);group['ongoing']=round(group['ongoing'],2)
     return list(groups.values())
 
 def snapshot(store,account,data):
