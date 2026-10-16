@@ -37,4 +37,4 @@ function IsUpdate: Boolean;
 begin
   Result := ExpandConstant('{param:UPDATE|0}') = '1';
 end;
-; User data intentionally remains after uninstall/reinstall.
+// User data intentionally remains after uninstall/reinstall.
