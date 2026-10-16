@@ -128,6 +128,7 @@ def course_module(row,modules):
 def course_credit_value(row,choice,module,personal):
     if choice.get('credits') is not None and not choice.get('credits_auto',False):return choice['credits'],'manual'
     if row.get('credit_value') is not None:return row['credit_value'],'enrollment'
+    if row.get('planner_credits') is not None:return row['planner_credits'],'study_planner_course'
     if module and module.get('credit_value') is not None:return module['credit_value'],'module'
     if personal.get('credits') is not None:return personal['credits'],'planned'
     return None,'unknown'
@@ -165,6 +166,12 @@ def course_list(data,state):
             personal=next((p for p in state.get('planned',[]) if p['id']==explicit[8:]),{})
             module=next((m for m in modules if m['id']==personal.get('module_id')),None)
         row.update(module_override=explicit,broken_link=bool(explicit and explicit!='none' and not module and not any(p['id']==explicit[8:] for p in state.get('planned',[]) if explicit.startswith('planned:'))),completed=bool(module and module['passed']),matched_module_name=module['name'] if module else '',match_source='manual' if explicit else method)
+        from .campo_planner import credit_lookup
+        planner_value,planner_unit,planner_source=credit_lookup(data.get('study_planner',{}),row)
+        if row.get('credit_value') is None and planner_value is not None:
+            row.update(planner_credits=planner_value,planner_unit_id=planner_unit)
+        automatic,automatic_source=course_credit_value(row,{},module,personal)
+        row.update(automatic_credits=automatic,automatic_credits_source=automatic_source)
         credit_value,credit_source=course_credit_value(row,choice,module,personal)
         row.update(credits_source=credit_source,exercise_credits=choice.get('exercise_credits',False),exercise=choice.get('exercise',False),will_exam=choice.get('will_exam'),group=choice.get('group',''),credits=credit_value,module_id=link,ongoing=choice.get('ongoing',True),confirmed=row.get('confirmed_enrollment',False) or choice.get('confirmed',False))
     for row in rows.values():row['classified']=bool(row.get('exercise')) or type(row.get('will_exam')) is bool
@@ -221,7 +228,7 @@ def progress_statistics(data,state,courses):
         value=module['credit_value'] if module and module['credit_value'] is not None else row.get('credits')
         row['count_reason']=reason
         if reason:continue
-        key='module:'+link if module else link if link.startswith('planned:') and link[8:] in planned else 'subject:'+stable(row.get('number') or course_name(row.get('name','')))
+        key='module:'+link if module else link if link.startswith('planned:') and link[8:] in planned else 'subject:'+stable(row.get('number') or row.get('planner_unit_id') or course_name(row.get('name','')))
         if key.startswith('planned:'):
             p=planned[key[8:]]
             linked=by_id.get(p.get('module_id',''))

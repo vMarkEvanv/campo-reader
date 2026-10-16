@@ -19,6 +19,7 @@ from .campo_source import scripts
 from . import campo_workspace as workspace
 from . import campo_documents
 from . import campo_courses
+from . import campo_planner
 from .browser import launch_browser
 
 class SessionExpired(DataError):
@@ -163,7 +164,7 @@ class Campo:
                     raise DataError('当前 FAU 身份与本地账号不一致，旧数据已保留。')
                 settings = self.preferences(store, account)
                 settings.update(subscription=subscription, session=session, reauth_required=False, last_attempt=time.time())
-                for field in ('courses','courses_sync'):
+                for field in ('courses','courses_sync','study_planner','study_planner_sync'):
                     if field not in result and field in previous:result[field]=previous[field]
                 if 'documents_sync' not in result and previous.get('documents_sync'):
                     result['documents_sync'] = previous['documents_sync']
@@ -218,7 +219,7 @@ class Campo:
                     account = store.add(label)
                 else:
                     store.read(account)
-                    if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh'):
+                    if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh','planner-refresh'):
                         raise ConsoleError('正在同步，请等待完成后再操作。', 409)
                     if action in ('changes-read','courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
                         workspace.mutate(store, account, payload)
@@ -237,6 +238,15 @@ class Campo:
                                 store.db.execute('DELETE FROM '+table+' WHERE account_id=?', (account,))
                         self.jobs.pop((user, account), None)
                         account = None
+                    elif action == 'planner-refresh':
+                        self.restore_session(self.preferences(store,account))
+                        if not self.slots.acquire(blocking=False):raise ConsoleError('已有同步任务运行。',409)
+                        self.jobs[(user,account)]={'running':True,'message':'正在读取 Study Planner 课程学分…'}
+                        try:threading.Thread(target=self.sync_planner,args=(user,account),daemon=True).start()
+                        except Exception:
+                            self.jobs[(user,account)]['running']=False
+                            self.slots.release()
+                            raise
                     elif action == 'courses-refresh':
                         self.restore_session(self.preferences(store, account))
                         if not self.slots.acquire(blocking=False):raise ConsoleError('已有同步任务运行。',409)
@@ -390,6 +400,13 @@ class Campo:
                         result['courses'],result['courses_sync']=rows,info
                     except Exception:
                         result['courses_sync']=dict(previous.get('courses_sync',{}),last_success_at=previous.get('courses_sync',{}).get('last_success_at') or previous.get('courses_sync',{}).get('checked_at'),checked_at=workspace.stamp(),status='error',message='课程报名读取未完成，原有课程与个人选择保留。')
+                    planner_check=previous.get('study_planner_sync',{}).get('checked_at','')
+                    if not automatic or planner_check[:10]!=timestamp[:10]:
+                        try:
+                            catalog=campo_planner.collect(context.storage_state(),identity)
+                            result.update(study_planner=catalog,study_planner_sync={'checked_at':catalog['checked_at'],'status':'ok','message':'Study Planner 学分已更新'})
+                        except Exception:
+                            result['study_planner_sync']=dict(previous.get('study_planner_sync',{}),checked_at=timestamp,status='error',message='Study Planner 更新未完成，旧学分保留。')
                     documents = []
                     last_check = previous.get('documents_sync',{}).get('checked_at','')
                     if not automatic or last_check[:10] != timestamp[:10]:
@@ -427,6 +444,28 @@ class Campo:
                 try: browser.close()
                 except Exception: pass
             with self.lock: self.jobs[(user, account)]['running'] = False
+            self.slots.release()
+
+    def sync_planner(self,user,account):
+        try:
+            with self.lock:
+                store=self.store(user)
+                try:data=store.read(account);saved=self.restore_session(self.preferences(store,account))
+                finally:store.close()
+            catalog=campo_planner.collect(saved,data['identity'])
+            with self.lock:
+                store=self.store(user)
+                try:
+                    current=store.read(account)
+                    if current.get('identity')!=data.get('identity'):raise DataError('账号身份发生变化，未保存学分。')
+                    current.update(study_planner=catalog,study_planner_sync={'checked_at':catalog['checked_at'],'message':'Study Planner 学分已更新','status':'ok'})
+                    with store.db:store.db.execute('UPDATE accounts SET payload=? WHERE id=?',(store._encode(current),account))
+                finally:store.close()
+            self.progress(user,account,'Study Planner 学分已更新；手动学分与分类保持原设置。')
+        except DataError as exc:self.progress(user,account,str(exc))
+        except Exception:self.progress(user,account,'Study Planner 读取未完成，原有学分与个人设置保留。')
+        finally:
+            with self.lock:self.jobs[(user,account)]['running']=False
             self.slots.release()
 
     def sync_courses(self,user,account):
