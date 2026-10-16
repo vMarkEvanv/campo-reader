@@ -117,7 +117,7 @@ class UpdateController(QObject):
    if not getattr(sys,'frozen',False):d.status.setText('开发运行模式不执行安装，请使用打包后的 Windows 程序。');return
    asset=payload['installer'];target=Path(sys.executable).resolve().parent
    args=[sys.executable,'--apply-update',str(path),'--sha256',asset['sha256'],'--size',str(asset['size']),'--wait-pid',str(os.getpid()),'--target-dir',str(target)]
-   try:subprocess.Popen(args,close_fds=True,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP)
+   try:subprocess.Popen(args,env=dict(os.environ,PYINSTALLER_RESET_ENVIRONMENT='1'),close_fds=True,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP)
    except OSError:d.status.setText('无法启动安装程序，当前版本可继续使用。');return
    self.app.quit()
   def failure(message):finish_controls();d.status.setText(message)

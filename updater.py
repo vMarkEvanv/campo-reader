@@ -117,7 +117,7 @@ def save_settings(root,settings):
  temp.write_text(json.dumps(settings),encoding='utf-8');os.replace(temp,path)
 
 def installer_arguments(installer,target):
- return [str(installer),'/SILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/UPDATE=1','/DIR='+str(target)]
+ return [str(installer),'/SILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/UPDATE=1','/LOG='+str(Path(installer).parent/'installer.log'),'/DIR='+str(target)]
 
 def apply_update(installer,sha256,size,wait_pid,target,root):
  """Detached helper waits for the old app to exit before starting the installer."""
@@ -136,4 +136,6 @@ def apply_update(installer,sha256,size,wait_pid,target,root):
   try:
    if kernel.WaitForSingleObject(handle,120000)!=0:raise UpdateError('原程序尚未退出，更新未执行。')
   finally:kernel.CloseHandle(handle)
- subprocess.Popen(installer_arguments(path,Path(target).resolve()),close_fds=True,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP)
+ # External installers must not inherit the frozen app's DLL search directory.
+ kernel.SetDllDirectoryW.argtypes=[wintypes.LPCWSTR];kernel.SetDllDirectoryW(None)
+ subprocess.Popen(installer_arguments(path,Path(target).resolve()),env=dict(os.environ,PYINSTALLER_RESET_ENVIRONMENT='1'),close_fds=True,creationflags=subprocess.DETACHED_PROCESS|subprocess.CREATE_NEW_PROCESS_GROUP)

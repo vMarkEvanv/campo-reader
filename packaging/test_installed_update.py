@@ -21,6 +21,7 @@ def digest(path):
 def main():
  root=Path(__file__).resolve().parents[1];install=Path(tempfile.mkdtemp(prefix='campo-upgrade-'))/'app'
  old=root/'old-release/CampoReader-Setup-Windows-x64.exe';new=root/'release/CampoReader-Setup-Windows-x64.exe';bundle=root/'dist/CampoReader/CampoReader.exe'
+ print('Installing previous release',flush=True)
  subprocess.run([str(old),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/DIR='+str(install)],check=True,timeout=90)
  data=Path(os.environ['LOCALAPPDATA'])/'CampoReader';data.mkdir(exist_ok=True)
  marker=data/'update-preserve-marker.txt';marker.write_text('preserve my data',encoding='utf-8')
@@ -34,6 +35,7 @@ def main():
  helper=subprocess.Popen([str(bundle),'--apply-update',str(cached),'--sha256',digest(cached),'--size',str(cached.stat().st_size),'--wait-pid',str(parent.pid),'--target-dir',str(install)])
  time.sleep(2);assert digest(install/'CampoReader.exe')==before,'Installer changed files before parent exit'
  parent.terminate();parent.wait(timeout=10);assert helper.wait(timeout=90)==0
+ print('Detached helper completed; waiting for new installed app',flush=True)
  target_hash=digest(bundle);deadline=time.monotonic()+100;ids=[]
  env=dict(os.environ,CAMPO_TEST_EXE=str(install/'CampoReader.exe'))
  command="Get-Process CampoReader -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:CAMPO_TEST_EXE } | Select-Object -ExpandProperty Id"
@@ -43,6 +45,15 @@ def main():
    ids=[int(v) for v in r.stdout.split() if v.isdigit()]
    if ids:break
   time.sleep(2)
+ if not ids:
+  print('installed_exe_exists', (install/'CampoReader.exe').exists(), flush=True)
+  print('installed_exe_matches', (install/'CampoReader.exe').exists() and digest(install/'CampoReader.exe')==target_hash, flush=True)
+  error=data/'startup-error.txt'
+  if error.exists():print('startup_error_type',error.read_text(),flush=True)
+  log=cache/'installer.log'
+  if log.exists():print('installer_log_tail',log.read_text('utf-8-sig',errors='replace')[-16000:],flush=True)
+  else:print('No installer log was created',flush=True)
+  print(subprocess.run(['powershell','-NoProfile','-Command',"Get-Process CampoReader*,*Setup* -ErrorAction SilentlyContinue | Select-Object Id,Path | Format-Table -AutoSize"],capture_output=True,text=True,timeout=10).stdout,flush=True)
  assert ids,'Updated app did not restart'
  for pid in ids:subprocess.run(['taskkill','/PID',str(pid),'/T','/F'],capture_output=True,timeout=20)
  time.sleep(2)
