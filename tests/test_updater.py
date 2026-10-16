@@ -19,7 +19,7 @@ class UpdateTests(unittest.TestCase):
  def signed(self,payload=None):
   p=payload or self.payload;return {'payload':p,'signature':base64.b64encode(self.private.sign(u.canonical(p))).decode()}
  def session(self,data):
-  session=MagicMock();r=MagicMock();r.status_code=200;r.headers={'Content-Length':str(len(data))};r.iter_content.return_value=[data];session.get.return_value.__enter__.return_value=r;return session,r
+  session=MagicMock();r=MagicMock();r.status_code=200;r.headers={'Content-Length':str(len(data))};r.iter_content.return_value=[data];session.get.return_value=r;r.__enter__.return_value=r;return session,r
  def test_signature_tampering_and_invalid_manifest(self):
   self.assertEqual(u.verify_manifest(self.signed(),self.key)['version'],'1.2.0')
   bad=self.signed();bad['payload']['version']='9.0.0'
@@ -35,7 +35,7 @@ class UpdateTests(unittest.TestCase):
    with self.assertRaises(u.UpdateError):u.version(invalid)
  def test_validated_download_cancellation_and_corruption(self):
   with tempfile.TemporaryDirectory() as root:
-   p=dict(self.payload,download_url=u.FEEDS[0].rsplit('/',1)[0]+'/'+self.payload['installer']['file'])
+   p=dict(self.payload,download_url=u.release_url(self.payload['version'],self.payload['installer']['file']))
    s,_=self.session(self.data);path=u.download_update(p,root,session=s);self.assertTrue(u.verified_file(path,p['installer']))
    s,_=self.session(b'bad');self.assertEqual(u.download_update(p,root,session=s),path);s.get.assert_not_called()
    path.unlink();s,r=self.session(self.data[:-1]+b'z')
@@ -60,3 +60,15 @@ class UpdateTests(unittest.TestCase):
    result=u.verify_manifest(json.loads((out/'update.json').read_text()),self.key);self.assertEqual(result['version'],'1.2.0')
    installer2=root/'other.exe';installer2.write_bytes(b'MZother')
    with self.assertRaises(ValueError):publish(installer2,'1.2.0','changed',out,key,pub)
+
+ def test_github_redirects_are_restricted_and_pinned_to_signed_version(self):
+  s,r=self.session(json.dumps(self.signed()).encode())
+  redirect=MagicMock();redirect.status_code=302;redirect.headers={'Location':'https://release-assets.githubusercontent.com/github-production-release-asset/example'}
+  s.get.side_effect=[redirect,r]
+  p=u.check_update(self.key,'1.0.0',session=s)
+  self.assertEqual(p['download_url'],u.release_url('1.2.0',self.payload['installer']['file']))
+  redirect.close.assert_called_once()
+  for bad in ['http://github.com/vMarkEvanv/campo-reader/releases/file','https://attacker.example/file','https://github.com/other/repo/releases/file','https://github.com.evil.example/file']:
+   s,r=self.session(b'');redirect=MagicMock();redirect.status_code=302;redirect.headers={'Location':bad};s.get.return_value=redirect
+   with self.assertRaises(u.UpdateError):u.check_update(self.key,'1.0.0',session=s)
+   self.assertEqual(s.get.call_count,1)

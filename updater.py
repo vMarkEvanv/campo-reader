@@ -1,4 +1,4 @@
-"""Signed private update channel. No GitHub token or device credentials in clients."""
+"""Signed GitHub Releases update channel. No client token or private server."""
 import base64
 import hashlib
 import hmac
@@ -13,8 +13,31 @@ from urllib.parse import urljoin,urlsplit
 import requests
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
-FEEDS=('https://orangepi4a.tail56ecbb.ts.net/downloads/campo-reader/update.json',
-       'http://192.168.2.60:8080/downloads/campo-reader/update.json')
+RELEASE_ROOT='https://github.com/vMarkEvanv/campo-reader/releases/'
+FEEDS=(RELEASE_ROOT+'latest/download/update.json',)
+ASSET_HOSTS={'release-assets.githubusercontent.com','objects.githubusercontent.com'}
+
+def release_url(release_version,filename):
+ version(release_version)
+ return RELEASE_ROOT+'download/v'+release_version+'/'+filename
+
+def github_location(url):
+ u=urlsplit(url)
+ if u.scheme!='https' or u.username or u.password or u.port not in (None,443):return False
+ if u.hostname in ASSET_HOSTS:return True
+ return u.netloc=='github.com' and u.path.startswith('/vMarkEvanv/campo-reader/releases/')
+
+def fetch(http,url,timeout):
+ # Follow GitHub's asset CDN redirects, rejecting other hosts and HTTP downgrades.
+ for _ in range(6):
+  if not github_location(url):raise UpdateError('更新地址不属于 GitHub 官方发布服务。')
+  r=http.get(url,timeout=timeout,stream=True,allow_redirects=False)
+  if r.status_code not in (301,302,303,307,308):return r
+  location=r.headers.get('Location');r.close()
+  if not location:raise UpdateError('GitHub 下载重定向不正确。')
+  url=urljoin(url,location)
+ raise UpdateError('GitHub 下载重定向次数过多。')
+
 MAX_SIZE=2*1024*1024*1024
 class UpdateError(Exception):pass
 class Cancelled(UpdateError):pass
@@ -43,7 +66,7 @@ def check_update(key,current,event=None,feeds=FEEDS,session=None):
  for feed in feeds:
   cancelled(event)
   try:
-   with http.get(feed,timeout=(4,6),stream=True,allow_redirects=False) as r:
+   with fetch(http,feed,(5,15)) as r:
     if r.status_code!=200:continue
     raw=b''
     for block in r.iter_content(8192):
@@ -51,12 +74,12 @@ def check_update(key,current,event=None,feeds=FEEDS,session=None):
      if len(raw)>65536:raise UpdateError('更新信息过大。')
     payload=verify_manifest(json.loads(raw),key)
     if version(payload['version'])<=version(current):return None
-    payload=dict(payload,download_url=urljoin(feed,payload['installer']['file']))
+    payload=dict(payload,download_url=release_url(payload['version'],payload['installer']['file']))
     return payload
   except Cancelled:raise
   except UpdateError:raise
   except (requests.RequestException,ValueError,KeyError,TypeError):continue
- raise UpdateError('暂时连接不到更新源。请连接 Tailscale，或在设备所在局域网中重试。')
+ raise UpdateError('暂时无法连接 GitHub，请检查网络后重试。')
 
 def verified_file(path,asset,event=None):
  path=Path(path)
@@ -74,15 +97,15 @@ def verified_file(path,asset,event=None):
 def download_update(payload,root,event=None,progress=None,session=None):
  asset=payload['installer'];version(payload['version'])
  # Manifest does not control a local path or permit downloading arbitrary URLs.
- url=payload['download_url'];u=urlsplit(url)
- if not any(u.scheme==urlsplit(f).scheme and u.netloc==urlsplit(f).netloc and u.path==urlsplit(f).path.rsplit('/',1)[0]+'/'+asset['file'] for f in FEEDS):raise UpdateError('更新下载地址不正确。')
+ url=payload['download_url']
+ if url!=release_url(payload['version'],asset['file']):raise UpdateError('更新下载地址不正确。')
  folder=Path(root)/'updates';folder.mkdir(parents=True,exist_ok=True)
  target=folder/asset['file'];part=folder/(asset['file']+'.part')
  if verified_file(target,asset,event):return target
  http=session or requests.Session()
  try:
   cancelled(event)
-  with http.get(url,stream=True,timeout=(5,10),allow_redirects=False) as r:
+  with fetch(http,url,(5,20)) as r:
    if r.status_code!=200:raise UpdateError('更新包下载失败，请稍后重试。')
    length=r.headers.get('Content-Length')
    if length and int(length)!=asset['size']:raise UpdateError('更新包大小不符合发布信息。')

@@ -42,7 +42,7 @@ class UpdateDialog(QDialog):
   self.notes=QPlainTextEdit();self.notes.setReadOnly(True);self.notes.setMaximumHeight(140);self.notes.hide();box.addWidget(self.notes)
   self.bar=QProgressBar();self.bar.hide();box.addWidget(self.bar)
   self.auto=QCheckBox('启动时自动检查更新（每天一次）');self.auto.setChecked(controller.settings['auto_check']);self.auto.toggled.connect(controller.set_auto);box.addWidget(self.auto)
-  hint=QLabel('通过你的设备获取更新，外网访问需要连接 Tailscale。升级保留账号、课程分类及证明文件。');hint.setWordWrap(True);box.addWidget(hint)
+  hint=QLabel('更新直接来自 GitHub Releases，无需连接 Tailscale。升级保留账号、课程分类及证明文件。');hint.setWordWrap(True);box.addWidget(hint)
   row=QHBoxLayout();self.check=QPushButton('检查更新');self.check.clicked.connect(lambda:controller.check());row.addWidget(self.check)
   self.install=QPushButton('下载并安装');self.install.setEnabled(False);self.install.clicked.connect(controller.download);row.addWidget(self.install)
   self.cancel_button=QPushButton('取消下载');self.cancel_button.clicked.connect(controller.cancel_download);self.cancel_button.hide();row.addWidget(self.cancel_button)
