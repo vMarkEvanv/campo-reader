@@ -33,10 +33,15 @@ def self_test(report_path):
     from desktop_updates import UpdateController
     updates=UpdateController(app,view,Path(temp),resources());updates.show(check=False);result['update_dialog']=updates.dialog.check.text()=='检查更新'
     app.aboutToQuit.connect(updates.shutdown)
+    from PySide6.QtCore import QThread
+    def worker_checked(value):
+     result['update_worker_on_ui_thread']=value=='ok' and QThread.currentThread()==app.thread()
+    updates.work(lambda event,progress:'ok',worker_checked,lambda message:None)
     def loaded(ok):
      result['desktop_page_loaded']=bool(ok);QTimer.singleShot(100,app.quit)
     view.loadFinished.connect(loaded);view.resize(1280,850);view.show();view.load(QUrl(srv.launch_url));QTimer.singleShot(25000,app.quit);app.exec();view.close()
     assert result.get('desktop_page_loaded'),'Desktop page did not load'
+    assert result.get('update_worker_on_ui_thread'),'Update worker did not return on UI thread'
    finally:srv.close()
   result['ok']=True
  except Exception as exc:result.update(ok=False,error_type=type(exc).__name__)

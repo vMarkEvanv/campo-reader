@@ -6,7 +6,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from PySide6.QtCore import QObject,Signal,QTimer
+from PySide6.QtCore import QObject,Signal,QTimer,Slot
 from PySide6.QtWidgets import QDialog,QVBoxLayout,QHBoxLayout,QLabel,QPlainTextEdit,QPushButton,QProgressBar,QCheckBox,QMessageBox,QApplication
 import updater
 from version import VERSION
@@ -69,15 +69,21 @@ class UpdateController(QObject):
   if self.settings['auto_check'] and time.time()-self.settings['last_attempt']>=86400:self.check(silent=True)
  def work(self,fn,success,failure):
   worker=Worker(fn);self.current=worker;self.workers.add(worker)
-  def done(value):
-   self.current=None
-   if not self.closing:success(value)
-  def failed(message):
-   self.current=None
-   if not self.closing:failure(message)
-  worker.result.connect(done);worker.failed.connect(failed)
+  worker.success=success;worker.failure=failure
+  worker.result.connect(self.on_result);worker.failed.connect(self.on_failure)
   if self.dialog:worker.progress.connect(self.dialog.bar.setValue)
-  worker.finished.connect(lambda:self.workers.discard(worker));worker.finished.connect(worker.deleteLater);worker.start()
+  worker.finished.connect(self.on_finished);worker.start()
+ @Slot(object)
+ def on_result(self,value):
+  worker=self.sender();self.current=None
+  if not self.closing:worker.success(value)
+ @Slot(str)
+ def on_failure(self,message):
+  worker=self.sender();self.current=None
+  if not self.closing:worker.failure(message)
+ @Slot()
+ def on_finished(self):
+  worker=self.sender();self.workers.discard(worker);worker.deleteLater()
  def check(self,silent=False):
   if self.current or self.closing:return
   if not silent and self.dialog is None:self.show(check=False)
