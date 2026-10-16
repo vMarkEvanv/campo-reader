@@ -1,4 +1,4 @@
-"""Run only on the owner's Orange Pi. The signing key is never shipped to clients."""
+"""Sign and stage release assets. The signing key is never shipped to clients."""
 import argparse
 import base64
 from datetime import datetime,timezone
