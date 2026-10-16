@@ -125,3 +125,18 @@ class CourseUpgradeTests(WorkspaceTests):
         self.campo.mark_expired(self.user,self.account)
         settings=self.snapshot()['settings']
         self.assertTrue(settings['reauth_required']);self.assertFalse(settings['ready']);self.assertFalse(settings['grades_ready'])
+
+class ExerciseCreditTests(WorkspaceTests):
+    def test_save_batch_and_reload_exercise_types(self):
+        initial=self.snapshot()['workspace'];key=initial['courses_view'][0]['id']
+        initial=self.action(action='plan-save',revision=initial['revision'],groups=[{'id':'g','name':'Required','target':30}],assignments={},planned=[])['workspace']
+        result=self.action(action='course-save',revision=initial['revision'],course_id=key,exercise=True,exercise_credits=True,will_exam=False,credits=3,group='g',ongoing=True,confirmed=True)['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],3)
+        self.assertTrue(self.snapshot()['workspace']['courses_view'][0]['exercise_credits'])
+        result=self.action(action='courses-batch',revision=result['revision'],course_ids=[key],purpose='exercise_nocredit')['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],0)
+        self.assertFalse(result['courses_view'][0]['exercise_credits'])
+        result=self.action(action='courses-batch',revision=result['revision'],course_ids=[key],purpose='exercise_credit')['workspace']
+        self.assertEqual(result['progress_stats'][0]['ongoing'],3)
+        with self.assertRaises(ConsoleError):
+            self.action(action='course-save',revision=result['revision'],course_id=key,exercise=True,exercise_credits='true',will_exam=False)

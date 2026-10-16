@@ -111,3 +111,19 @@ class CourseTests(unittest.TestCase):
   page=MagicMock();page.evaluate.side_effect=[[{'id':'nav'}],[]]
   with patch.object(c,'identity'),patch.object(c,'activate'):
    with self.assertRaises(DataError):c.collect(page,'Alice','Winter semester 2026/27')
+
+ def test_credited_exercise_counts_without_exam_and_deduplicates(self):
+  data,state,row,modules=self.fixture();row.update(exercise=True,exercise_credits=True,will_exam=False)
+  self.assertEqual(w.progress_statistics(data,state,[row])[0]['ongoing'],10)
+  lecture=dict(row,id='lecture',exercise=False,will_exam=True)
+  self.assertEqual(w.progress_statistics(data,state,[row,lecture])[0]['ongoing'],10)
+  row['exercise_credits']=False
+  self.assertEqual(w.progress_statistics(data,state,[row])[0]['ongoing'],0)
+  self.assertEqual(row['count_reason'],'exercise')
+
+ def test_credited_exercise_plan_counts_without_exam(self):
+  data,state,row,modules=self.fixture()
+  state['planned']=[{'id':'p','name':'Practical','group':'g','credits':3,'status':'ongoing','exercise':True,'exercise_credits':True,'will_exam':False,'module_id':''}]
+  self.assertEqual(w.progress_statistics(data,state,[])[0]['ongoing'],3)
+  state['planned'][0].pop('exercise_credits')
+  self.assertEqual(w.progress_statistics(data,state,[])[0]['ongoing'],0)
