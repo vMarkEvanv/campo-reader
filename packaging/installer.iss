@@ -1,4 +1,6 @@
-#define AppVersion "1.0.0"
+#ifndef AppVersion
+  #error AppVersion must be provided by the build
+#endif
 [Setup]
 AppId={{78C997E0-ECE3-4CB6-981C-79F378C3E203}
 AppName=Campo Reader
@@ -29,4 +31,10 @@ Name: "{group}\Campo Reader"; Filename: "{app}\CampoReader.exe"
 Name: "{autodesktop}\Campo Reader"; Filename: "{app}\CampoReader.exe"; Tasks: desktopicon
 [Run]
 Filename: "{app}\CampoReader.exe"; Description: "Launch Campo Reader"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\CampoReader.exe"; Flags: nowait runasoriginaluser; Check: IsUpdate
+[Code]
+function IsUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:UPDATE|0}') = '1';
+end;
 ; User data intentionally remains after uninstall/reinstall.

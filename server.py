@@ -64,6 +64,9 @@ class Handler(BaseHTTPRequestHandler):
  def do_POST(self):
   try:
    self.validate(write=True);parts=urlsplit(self.path)
+   if parts.path=='/api/desktop/check-update':
+    if self.server.check_updates:self.server.check_updates()
+    self.reply(200,{'ok':True});return
    if parts.path=='/api/desktop/open-data':
     if self.server.open_data:self.server.open_data()
     self.reply(200,{'ok':True});return
@@ -84,9 +87,9 @@ class Handler(BaseHTTPRequestHandler):
 class DesktopServer(ThreadingHTTPServer):
  daemon_threads=True
  allow_reuse_address=False
- def __init__(self,data_root,public,open_data=None):
+ def __init__(self,data_root,public,open_data=None,check_updates=None):
   super().__init__(('127.0.0.1',0),Handler)
-  self.public=Path(public);self.campo=Campo(data_root);self.open_data=open_data
+  self.public=Path(public);self.campo=Campo(data_root);self.open_data=open_data;self.check_updates=check_updates
   self.secret=secrets.token_urlsafe(32);self.cookie_name='campo_'+secrets.token_hex(8)
   self.address='127.0.0.1:'+str(self.server_address[1]);self.origin='http://'+self.address
   self.launch_url=self.origin+'/launch?token='+self.secret

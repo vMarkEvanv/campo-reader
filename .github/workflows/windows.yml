@@ -42,10 +42,20 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\installer.iss
+          $version = python -c "from version import VERSION; print(VERSION)"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" packaging\installer.iss
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed' }
           Compress-Archive -Path dist\CampoReader -DestinationPath release\CampoReader-Portable-Windows-x64.zip
           Copy-Item smoke-windows.json release\smoke-windows.json
+          Get-ChildItem release -File | Where-Object Name -ne SHA256SUMS.txt | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content release\SHA256SUMS.txt
+      - name: Verify real upgrade and user-data preservation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          gh release download v1.0.0 --repo $env:GITHUB_REPOSITORY --pattern CampoReader-Setup-Windows-x64.exe --dir old-release
+          python packaging/test_installed_update.py
+          if ($LASTEXITCODE -ne 0) { throw 'Installed update integration test failed' }
           Get-ChildItem release -File | Where-Object Name -ne SHA256SUMS.txt | ForEach-Object { $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(); "$hash  $($_.Name)" } | Set-Content release\SHA256SUMS.txt
       - name: Upload Windows packages
         uses: actions/upload-artifact@v4
@@ -68,5 +78,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          gh release create v1.0.0 release/CampoReader-Setup-Windows-x64.exe release/CampoReader-Portable-Windows-x64.zip release/SHA256SUMS.txt release/smoke-windows.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Campo Reader 1.0.0 - Windows" --notes-file packaging/release-notes.md
+          $version = python -c "from version import VERSION; print(VERSION)"
+          gh release create "v$version" release/CampoReader-Setup-Windows-x64.exe release/CampoReader-Portable-Windows-x64.zip release/SHA256SUMS.txt release/smoke-windows.json release/update-install-smoke.json --repo $env:GITHUB_REPOSITORY --target $env:GITHUB_SHA --title "Campo Reader $version - Windows" --notes-file packaging/release-notes.md
           if ($LASTEXITCODE -ne 0) { throw 'Private release publication failed' }

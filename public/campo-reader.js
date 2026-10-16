@@ -28,6 +28,7 @@ const views=['calendar','courses','grades','changes','progress','documents'];con
 views.forEach(view=>$('tab-'+view).onclick=()=>{activeView=view;if(location.hash!=='#'+view)history.pushState(null,'','#'+view);views.forEach(v=>{$(v).hidden=v!==view;$('tab-'+v).classList.toggle('active',v===view);$('tab-'+v).setAttribute('aria-current',v===view?'page':'false');});$(view).classList.remove('view-enter');void $(view).offsetWidth;$(view).classList.add('view-enter');$('view-title').textContent=titles[view];document.querySelector('.subtitle').textContent='课表与成绩 · 自动同步';render();});
 window.CampoWorkspace.init({api,apply,status,getState:()=>({account,snapshot,view:activeView})});
 document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(timer);clearTimeout(autoTimer);}else if(snapshot.job&&snapshot.job.running)poll();else if(snapshot.settings&&snapshot.settings.ready)load(account).catch(e=>status(e.message));});
+$('desktop-check-update').onclick=()=>{fetch('/api/desktop/check-update',{method:'POST',credentials:'same-origin',headers:{'X-Console-CSRF':csrf}}).catch(e=>status(e.message));};
 $('desktop-data-folder').onclick=()=>{fetch('/api/desktop/open-data',{method:'POST',credentials:'same-origin',headers:{'X-Console-CSRF':csrf}}).catch(e=>status(e.message));};
 window.addEventListener('hashchange',()=>{const view=location.hash.slice(1);if(views.includes(view)&&view!==activeView)$('tab-'+view).click();});
 load().then(()=>{const view=location.hash.slice(1);if(views.includes(view))$('tab-'+view).click();}).catch(e=>status(e.message));

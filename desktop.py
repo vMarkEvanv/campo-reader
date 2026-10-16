@@ -5,7 +5,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-VERSION='1.0.0'
+from version import VERSION
 def resources():return Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 def data_directory():
  path=Path(os.environ.get('LOCALAPPDATA',str(Path.home()/'.local/share')))/'CampoReader'
@@ -30,6 +30,9 @@ def self_test(report_path):
     from PySide6.QtWidgets import QApplication
     from PySide6.QtWebEngineWidgets import QWebEngineView
     app=QApplication.instance() or QApplication([]);view=QWebEngineView()
+    from desktop_updates import UpdateController
+    updates=UpdateController(app,view,Path(temp),resources());updates.show(check=False);result['update_dialog']=updates.dialog.check.text()=='检查更新'
+    app.aboutToQuit.connect(updates.shutdown)
     def loaded(ok):
      result['desktop_page_loaded']=bool(ok);QTimer.singleShot(100,app.quit)
     view.loadFinished.connect(loaded);view.resize(1280,850);view.show();view.load(QUrl(srv.launch_url));QTimer.singleShot(25000,app.quit);app.exec();view.close()
@@ -43,6 +46,11 @@ def self_test(report_path):
 def main():
  from campo_backend.browser import configure_browser
  configure_browser()
+ if len(sys.argv)>2 and sys.argv[1]=='--apply-update':
+  import argparse
+  from updater import apply_update
+  parser=argparse.ArgumentParser();parser.add_argument('--apply-update');parser.add_argument('--sha256');parser.add_argument('--size',type=int);parser.add_argument('--wait-pid',type=int);parser.add_argument('--target-dir');args=parser.parse_args()
+  apply_update(args.apply_update,args.sha256,args.size,args.wait_pid,args.target_dir,data_directory());return 0
  if len(sys.argv)>2 and sys.argv[1]=='--self-test':return self_test(sys.argv[2])
  from PySide6.QtCore import QLockFile,QObject,Signal,QUrl,Qt,QTimer
  from PySide6.QtGui import QDesktopServices,QIcon,QAction
@@ -54,9 +62,11 @@ def main():
  root=data_directory();lock=QLockFile(str(root/'app.lock'));lock.setStaleLockTime(0)
  if not lock.tryLock(100):
   QMessageBox.information(None,'Campo Reader','程序已经运行，请查看任务栏中的 Campo Reader 窗口。');return 0
- class Bridge(QObject):open_data=Signal()
+ class Bridge(QObject):
+  open_data=Signal()
+  check_updates=Signal()
  bridge=Bridge();bridge.open_data.connect(lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(str(root))))
- srv=DesktopServer(root,resources()/'public',bridge.open_data.emit);srv.start()
+ srv=DesktopServer(root,resources()/'public',bridge.open_data.emit,bridge.check_updates.emit);srv.start()
  class Page(QWebEnginePage):
   def acceptNavigationRequest(self,url,kind,is_main):
    value=url.toString()
@@ -79,12 +89,18 @@ def main():
   if not path:request.cancel();return
   request.setDownloadDirectory(str(Path(path).parent));request.setDownloadFileName(Path(path).name);request.accept()
  profile.downloadRequested.connect(download)
+ from desktop_updates import UpdateController
+ updates=UpdateController(app,window,root,resources(),lambda:any(job.get('running') for job in srv.campo.jobs.values()))
+ bridge.check_updates.connect(updates.show)
+ app.aboutToQuit.connect(updates.shutdown)
+ QTimer.singleShot(5000,updates.auto_check)
  menu=window.menuBar().addMenu('应用')
  def action(label,fn,shortcut=None):
   a=QAction(label,window);a.triggered.connect(fn)
   if shortcut:a.setShortcut(shortcut)
   menu.addAction(a)
  action('重新加载',view.reload,'Ctrl+R');action('打开本地数据文件夹',bridge.open_data.emit)
+ action('检查更新',lambda:updates.show())
  action('关于',lambda:QMessageBox.information(window,'关于 Campo Reader','Campo Reader '+VERSION+'\n独立 Windows 桌面版\n数据保存在本机；与 Orange Pi 版本相互独立。\n关闭应用后，本机自动同步随之停止。\n第三方许可见安装目录 THIRD_PARTY_NOTICES.md。'))
  action('退出',window.close,'Ctrl+Q')
  app.aboutToQuit.connect(srv.close);view.load(QUrl(srv.launch_url));window.show()
