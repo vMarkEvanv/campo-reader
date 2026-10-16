@@ -38,6 +38,11 @@ def main():
   index=directory/'index.html'
   if index.exists():
    import re
-   text=index.read_text();text=re.sub(r'1\.0\.0',v,text);index.write_text(text)
+   text=index.read_text()
+   text=re.sub(r'(WINDOWS DESKTOP · )\d+\.\d+\.\d+',lambda m:m[1]+v,text)
+   text=re.sub(r'(/releases/(?:download|tag)/v)\d+\.\d+\.\d+',lambda m:m[1]+v,text)
+   size=round((root/names[0]).stat().st_size/(1024*1024))
+   text=re.sub(r'(Windows 10 / 11 x64 · )\d+ MB',lambda m:m[1]+str(size)+' MB',text)
+   part=index.with_suffix('.new');part.write_text(text);part.replace(index)
  print('Published verified Windows release '+v)
 if __name__=='__main__':main()
