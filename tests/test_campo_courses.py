@@ -132,3 +132,17 @@ class CourseTests(unittest.TestCase):
   state={'groups':[{'id':'g','target':1}],'assignments':{},'planned':[{'id':str(i),'name':'Course '+str(i),'group':'g','credits':v,'status':'ongoing','will_exam':True} for i,v in enumerate([0.1,0.2])]}
   self.assertEqual(w.progress_statistics({'grades':[]},state,[])[0]['ongoing'],0.3)
   self.assertEqual(w.number(1.25),1.25)
+
+ def test_auto_credits_use_reliable_sources_and_preserve_manual_value(self):
+  data={'grades':[{'kind':'module','name':'Math','number':'M','status':'AN','credits':'4.25'}],'courses':[{'id':'c','name':'Lecture Math','credit_value':None}]}
+  state={'course_choices':{'c':{'credits':None}}}
+  row=w.course_list(data,state)[0];self.assertEqual((row['credits'],row['credits_source']),(4.25,'module'))
+  state['course_choices']['c']['credits']=0
+  self.assertEqual(w.course_list(data,state)[0]['credits'],0)
+  state['course_choices']['c']['credits_auto']=True
+  data['grades'][0]['credits']='5.50'
+  self.assertEqual(w.course_list(data,state)[0]['credits'],5.5)
+  data['courses'][0]['credit_value']=1.25
+  row=w.course_list(data,state)[0];self.assertEqual((row['credits'],row['credits_source']),(1.25,'enrollment'))
+  data['courses'][0]['credit_value']=None;state['course_choices']['c']['module_id']='none'
+  self.assertIsNone(w.course_list(data,state)[0]['credits'])

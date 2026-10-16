@@ -140,3 +140,19 @@ class ExerciseCreditTests(WorkspaceTests):
         self.assertEqual(result['progress_stats'][0]['ongoing'],3)
         with self.assertRaises(ConsoleError):
             self.action(action='course-save',revision=result['revision'],course_id=key,exercise=True,exercise_credits='true',will_exam=False)
+
+    def test_auto_credit_mode_tracks_source_and_manual_override(self):
+        data=copy.deepcopy(self.base);data['courses']=[{'id':'c','name':'Course','credit_value':1.25,'active':True,'confirmed_enrollment':True}]
+        store=self.campo.store(self.user);store.save(self.account,data);store.close()
+        revision=self.snapshot()['workspace']['revision']
+        def save(revision,**extra):
+            return self.action(action='course-save',revision=revision,course_id='c',will_exam=True,**extra)['workspace']
+        result=save(revision,credits=1.25,credits_auto=True)
+        self.assertEqual(result['courses_view'][0]['credits_source'],'enrollment')
+        result=save(result['revision'],credits=2.75,credits_auto=False)
+        data['courses'][0]['credit_value']=4.5
+        store=self.campo.store(self.user);store.save(self.account,data);store.close()
+        row=self.snapshot()['workspace']['courses_view'][0]
+        self.assertEqual((row['credits'],row['credits_source']),(2.75,'manual'))
+        result=save(result['revision'],credits=None,credits_auto=True)
+        row=result['courses_view'][0];self.assertEqual((row['credits'],row['credits_source']),(4.5,'enrollment'))

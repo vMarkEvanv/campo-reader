@@ -125,6 +125,13 @@ def course_module(row,modules):
     matches=[m for m in modules if name and course_name(m.get('name',''))==name]
     return (matches[0],'name') if len(matches)==1 else (None,'ambiguous' if matches else '')
 
+def course_credit_value(row,choice,module,personal):
+    if choice.get('credits') is not None and not choice.get('credits_auto',False):return choice['credits'],'manual'
+    if row.get('credit_value') is not None:return row['credit_value'],'enrollment'
+    if module and module.get('credit_value') is not None:return module['credit_value'],'module'
+    if personal.get('credits') is not None:return personal['credits'],'planned'
+    return None,'unknown'
+
 def course_list(data,state):
     raw=data.get('courses')
     if raw is None:
@@ -153,11 +160,13 @@ def course_list(data,state):
         module=next((m for m in modules if m['id']==explicit),None) if explicit else match
         default_module=module['id'] if module else ''
         link=explicit or default_module
+        personal={}
         if explicit.startswith('planned:'):
             personal=next((p for p in state.get('planned',[]) if p['id']==explicit[8:]),{})
             module=next((m for m in modules if m['id']==personal.get('module_id')),None)
         row.update(module_override=explicit,broken_link=bool(explicit and explicit!='none' and not module and not any(p['id']==explicit[8:] for p in state.get('planned',[]) if explicit.startswith('planned:'))),completed=bool(module and module['passed']),matched_module_name=module['name'] if module else '',match_source='manual' if explicit else method)
-        row.update(exercise_credits=choice.get('exercise_credits',False),exercise=choice.get('exercise',False),will_exam=choice.get('will_exam'),group=choice.get('group',''),credits=choice.get('credits',row.get('credit_value')),module_id=link,ongoing=choice.get('ongoing',True),confirmed=row.get('confirmed_enrollment',False) or choice.get('confirmed',False))
+        credit_value,credit_source=course_credit_value(row,choice,module,personal)
+        row.update(credits_source=credit_source,exercise_credits=choice.get('exercise_credits',False),exercise=choice.get('exercise',False),will_exam=choice.get('will_exam'),group=choice.get('group',''),credits=credit_value,module_id=link,ongoing=choice.get('ongoing',True),confirmed=row.get('confirmed_enrollment',False) or choice.get('confirmed',False))
     for row in rows.values():row['classified']=bool(row.get('exercise')) or type(row.get('will_exam')) is bool
     return list(rows.values())
 
@@ -334,13 +343,15 @@ def mutate(store,account,payload):
         if module_id and module_id!='none' and module_id not in valid:raise ConsoleError('对应模块不存在。')
         value=payload.get('credits')
         if value is not None:value=number(value,60)
+        if type(payload.get('credits_auto',False)) is not bool:raise ConsoleError('学分来源不正确。')
+        if payload.get('credits_auto'):value=None
         for field in ('ongoing','confirmed','exercise','exercise_credits'):
             if type(payload.get(field,True)) is not bool:raise ConsoleError('课程状态不正确。')
         original={k:source.get(k) for k in ('id','name','number','semester','status','kind','credit_value','module_number','source','active','confirmed_enrollment')}
         linked=next((m for m in module_list(data) if m['id']==module_id),None)
         if not module_id:linked=course_module(source,module_list(data))[0]
         if linked and group and credit_intent(payload):current['assignments'].setdefault(linked['id'],group)
-        current['course_choices'][key]={'exercise_credits':bool(payload.get('exercise') and payload.get('exercise_credits',False)),'exercise':payload.get('exercise',False),'will_exam':will_exam,'group':group,'credits':value,'module_id':module_id,'ongoing':payload.get('ongoing',True),'confirmed':payload.get('confirmed',False),'source_snapshot':original}
+        current['course_choices'][key]={'exercise_credits':bool(payload.get('exercise') and payload.get('exercise_credits',False)),'exercise':payload.get('exercise',False),'will_exam':will_exam,'group':group,'credits_auto':bool(payload.get('credits_auto') or value is None),'credits':value,'module_id':module_id,'ongoing':payload.get('ongoing',True),'confirmed':payload.get('confirmed',False),'source_snapshot':original}
     elif action=='plan-save':
         groups=payload.get('groups');assignments=payload.get('assignments');planned=payload.get('planned')
         if not isinstance(groups,list) or len(groups)>40 or not isinstance(assignments,dict) or len(assignments)>1000 or not isinstance(planned,list) or len(planned)>200:raise ConsoleError('规划格式或数量不正确。')
