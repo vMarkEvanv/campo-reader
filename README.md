@@ -1,4 +1,36 @@
-# Campo Reader · Windows 独立桌面版
+# Campo Reader — 网页版与 Windows 版
+
+独立的 FAU Campo 工具，统一维护网页版和 Windows 桌面版。只包含课表、成绩、课程管理、学分进度和证明文件等 Campo Reader 功能，不包含博客、导航台、AI 对话、SSH 或设备控制台。
+
+## 共享架构
+
+- `campo_backend/`：两端共用的获取、解析、缓存和课程/证明业务逻辑。
+- `public/`：两端共用的 HTML、CSS、JavaScript 界面。
+- `server.py`：共享 HTTP API 与 Windows 本机访问控制。
+- `web.py`：独立网页入口，使用共享 API，隐藏桌面操作。
+- `desktop.py`、`desktop_updates.py`：Windows 窗口、原生下载和更新。
+- `packaging/`、`.github/workflows/`：安装包、发布及两端检查。
+
+网页版和桌面版独立运行、独立保存数据；合并代码不代表自动同步个人数据。两份仓库原有的提交历史已通过合并保留，旧 PyQt 客户端可从早期提交查看，当前使用同一套网页界面与核心逻辑。
+
+## 独立网页版
+
+Python 3.10+，推荐 Python 3.12：
+
+```bash
+python -m venv .venv
+.venv/bin/pip install -r requirements-web.txt
+.venv/bin/python -m playwright install --only-shell chromium
+.venv/bin/python web.py
+```
+
+打开 `http://127.0.0.1:8090/`。Linux 也可使用已有的 `/usr/bin/chromium-browser`。无需安装 Qt，也无需部署 BLOG。默认数据位于 `~/.local/share/campo-reader-web`，可通过 `--data-dir` 指定；不要使用正在被另一个 Campo 进程写入的目录。
+
+这是单人私有网页服务，沿用个人设备内直接进入的使用方式，**没有多用户登录或公开访问控制**。默认仅监听本机。远程使用时放在 Tailscale/可信私有网络和 HTTPS 反向代理后面，并用 `--allowed-host your-private-host:port` 允许精确的代理 Host。不要直接暴露到公网。写入接口仍验证 Host、Origin、CSRF；不提供设备控制接口。
+
+现有 Orange Pi 集成网页继续运行；本次仓库整理不会替换其服务或搬动账号、会话和文档。
+
+## Windows 桌面版
 
 从 Orange Pi 网页版提取，保留同一套界面和业务逻辑。只包含 Campo Reader，不依赖博客、导航台、SSH 或设备控制台。
 
@@ -17,7 +49,7 @@
 
 ## 构建与验证
 
-使用 `.github/workflows/windows.yml` 在 Windows 2022 / Python 3.12 构建。
+共享代码每次推送运行 Linux 回归测试。修改 `version.py` 的版本号并推送 main，或手动运行 `.github/workflows/windows.yml`，即可构建 Windows 发布包。使用 `.github/workflows/windows.yml` 在 Windows 2022 / Python 3.12 构建。
 依赖固定于 requirements*.txt。PyInstaller 输出目录包，Inno Setup 生成当前用户安装包。
 构建执行业务与本地接口测试，并直接运行打包后的 EXE 验证本地 API、内置 Chromium 和 Qt 页面加载。
 

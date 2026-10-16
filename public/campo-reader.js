@@ -33,3 +33,5 @@ $('desktop-data-folder').onclick=()=>{fetch('/api/desktop/open-data',{method:'PO
 window.addEventListener('hashchange',()=>{const view=location.hash.slice(1);if(views.includes(view)&&view!==activeView)$('tab-'+view).click();});
 load().then(()=>{const view=location.hash.slice(1);if(views.includes(view))$('tab-'+view).click();}).catch(e=>status(e.message));
 })();
+
+fetch('/api/app',{credentials:'same-origin'}).then(r=>r.json()).then(info=>{if(info.mode==='web'){['desktop-check-update','desktop-data-folder'].forEach(id=>{var item=document.getElementById(id);if(item)item.remove();});}}).catch(()=>{});

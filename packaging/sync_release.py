@@ -8,7 +8,7 @@ import tempfile
 from publish_update import publish
 from updater import version
 
-REPO='vMarkEvanv/campo-reader-windows'
+REPO='vMarkEvanv/campo-reader'
 def main():
  p=argparse.ArgumentParser();p.add_argument('--gh',required=True);p.add_argument('--directory',required=True);p.add_argument('--key',required=True);a=p.parse_args()
  def gh(*args):return subprocess.check_output([a.gh,*args],text=True,timeout=180)

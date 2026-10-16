@@ -47,6 +47,8 @@ class Handler(BaseHTTPRequestHandler):
     self.reply(302,b'',headers={'Location':'/tools/campo-reader','Set-Cookie':self.server.cookie_name+'='+self.server.secret+'; Path=/; HttpOnly; SameSite=Strict'})
     return
    self.validate()
+   if parts.path=='/api/app':
+    self.reply(200,{'mode':'desktop' if getattr(self.server,'desktop',True) else 'web'});return
    if parts.path in ('/','/favicon.ico'):
     self.reply(302,b'',headers={'Location':'/tools/campo-reader' if parts.path=='/' else '/campo-icon.svg'});return
    if parts.path in ASSETS:

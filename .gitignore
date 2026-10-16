@@ -10,3 +10,11 @@ browsers/
 *.pem
 *.log
 smoke*.json
+
+data/
+.env
+.env.*
+*.db*
+*.ics
+*.p12
+release-final/
