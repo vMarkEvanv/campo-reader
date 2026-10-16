@@ -19,7 +19,7 @@ def digest(path):
  return h.hexdigest()
 
 def main():
- root=Path(__file__).resolve().parents[1];install=Path(tempfile.mkdtemp(prefix='campo-upgrade-'))/'app'
+ root=Path(__file__).resolve().parents[1];install=Path(tempfile.mkdtemp(prefix='campo-upgrade-')).resolve()/'app'
  old=root/'old-release/CampoReader-Setup-Windows-x64.exe';new=root/'release/CampoReader-Setup-Windows-x64.exe';bundle=root/'dist/CampoReader/CampoReader.exe'
  print('Installing previous release',flush=True)
  subprocess.run([str(old),'/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/CURRENTUSER','/DIR='+str(install)],check=True,timeout=90)
@@ -37,7 +37,7 @@ def main():
  parent.terminate();parent.wait(timeout=10);assert helper.wait(timeout=90)==0
  print('Detached helper completed; waiting for new installed app',flush=True)
  target_hash=digest(bundle);deadline=time.monotonic()+100;ids=[]
- env=dict(os.environ,CAMPO_TEST_EXE=str(install/'CampoReader.exe'))
+ env=dict(os.environ,CAMPO_TEST_EXE=str((install/'CampoReader.exe').resolve()))
  command="Get-Process CampoReader -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:CAMPO_TEST_EXE } | Select-Object -ExpandProperty Id"
  while time.monotonic()<deadline:
   if (install/'CampoReader.exe').exists() and digest(install/'CampoReader.exe')==target_hash:
