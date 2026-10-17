@@ -36,7 +36,7 @@ public class LocalAppTest {
         assertEquals("true",js("document.documentElement.scrollWidth<=innerWidth"));
         assertEquals("true",js("document.documentElement.classList.contains('android-app')"));
         js("document.getElementById('add').click();document.getElementById('label').value='Android test';document.querySelector('#add-form .primary').click()");
-        waitJs("document.getElementById('accounts').options[0].textContent",JSONObject.quote("Android test"));
+        waitJs("document.getElementById('accounts').selectedOptions[0].textContent",JSONObject.quote("Android test"));
         for(String view:new String[]{"courses","grades","progress","documents","calendar"}){
             js("document.getElementById('tab-"+view+"').click()");assertEquals("false",js("document.getElementById('"+view+"').hidden"));
             assertEquals("true",js("document.documentElement.scrollWidth<=innerWidth"));
@@ -45,9 +45,23 @@ public class LocalAppTest {
         js("document.getElementById('settings').click()");assertEquals("true",js("document.getElementById('settings-dialog').open"));
         activity.onActivity(a->a.getOnBackPressedDispatcher().onBackPressed());waitJs("document.getElementById('settings-dialog').open","false");
         // Reload uses the on-device SQLite account without any online service.
-        activity.onActivity(a->a.getAppWebView().reload());waitJs("document.getElementById('accounts').options[0].textContent",JSONObject.quote("Android test"));
+        activity.onActivity(a->a.getAppWebView().reload());waitJs("Array.from(document.getElementById('accounts').options).some(o=>o.textContent==='Android test')","true");
         String encrypted=app.seal("synthetic-local-value");assertFalse(encrypted.contains("synthetic-local-value"));assertEquals("synthetic-local-value",app.unseal(encrypted));
         try{app.unseal(encrypted.substring(0,encrypted.length()-5)+"AAAAA");fail("Tampered ciphertext accepted");}catch(Exception expected){}
+    }
+    @Test public void timetableRefreshesBeforeSyncFinishes()throws Exception{
+        com.chaquo.python.PyObject helper=Python.getInstance().getModule("android_adapter_test");
+        String account=helper.callAttr("begin_stage_test").toString();
+        activity.onActivity(a->a.getAppWebView().reload());
+        waitJs("!!document.querySelector('#accounts option[value=\""+account+"\"]')","true");
+        js("document.getElementById('accounts').value='"+account+"';document.getElementById('accounts').dispatchEvent(new Event('change'))");
+        waitJs("document.getElementById('identity').textContent",JSONObject.quote("Staged fixture"));
+        helper.callAttr("publish_stage_test");
+        waitJs("document.getElementById('week').textContent.includes('Fresh staged timetable')","true");
+        assertEquals("false",js("document.getElementById('sync-progress').hidden"));
+        helper.callAttr("finish_stage_test");
+        waitJs("document.getElementById('sync-progress').hidden","true");
+        assertEquals("true",js("document.getElementById('week').textContent.includes('Fresh staged timetable')"));
     }
     @Test public void officialBrowserAdapterIsIsolated()throws Exception{
         assertTrue(RemoteBrowser.official("https://www.campo.fau.de/qisserver/"));assertFalse(RemoteBrowser.official("https://www.campo.fau.de.evil.example/"));assertFalse(RemoteBrowser.official("http://www.campo.fau.de/"));assertFalse(RemoteBrowser.official("https://evil@www.campo.fau.de/"));

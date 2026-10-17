@@ -101,7 +101,7 @@ class CampoRefreshTests(unittest.TestCase):
             if script==scripts.OPEN_CALENDAR:return True
             raise AssertionError('Unexpected script, including password login')
         page.evaluate.side_effect=evaluate
-        with patch('playwright.sync_api.sync_playwright') as launch,patch.object(self.campo,'calendar',return_value={'events':[{'title':'new'}],'range_start':'2026-01-01','range_end':'2027-01-01'}),patch.object(self.campo,'read_grades',side_effect=DataError('Grade read failed') if grades_error else None,return_value=[{'name':'Physics','grade':'1.3'}]):
+        with patch('playwright.sync_api.sync_playwright') as launch,patch.object(self.campo,'calendar',return_value={'events':[{'title':'new'}],'range_start':'2026-01-01','range_end':'2027-01-01'}),patch.object(self.campo,'read_grades',side_effect=DataError('Grade read failed') if grades_error else None,return_value=[{'name':'Physics','grade':'1.3'}]),patch('campo_backend.campo.campo_courses.collect',return_value=([],{'checked_at':'2026-10-17','scope':'all'})),patch('campo_backend.campo.campo_planner.collect',return_value={'checked_at':'2026-10-17','modules':[]}),patch('campo_backend.campo.campo_documents.collect',return_value=([],{'checked_at':'2026-10-17','catalog':[]})):
             launch.return_value.__enter__.return_value=pw
             self.campo.sync('alice',self.account,None,None)
         browser.new_context.assert_called_once_with(storage_state=self.session)
@@ -111,7 +111,7 @@ class CampoRefreshTests(unittest.TestCase):
         result=self.perform_sync()
         self.assertEqual(result['data']['events'],[{'title':'new'}])
         self.assertEqual(result['data']['grades'],[{'name':'Physics','grade':'1.3'}])
-        self.assertEqual(result['data']['calendar_updated_at'],result['data']['grades_updated_at'])
+        self.assertTrue(result['data']['calendar_updated_at']);self.assertTrue(result['data']['grades_updated_at'])
         self.assertTrue(result['settings']['ready']);self.assertFalse(result['job']['running'])
         self.assertNotIn('private-session-cookie',str(result))
 
@@ -122,10 +122,13 @@ class CampoRefreshTests(unittest.TestCase):
         with patch('campo_backend.campo.threading.Thread') as thread:
             self.campo.tick();thread.assert_not_called()
 
-    def test_failed_grades_preserves_both_snapshots(self):
+    def test_failed_grades_preserves_grades_but_updates_calendar(self):
         old=self.campo.snapshot('alice',self.account)['data']
         result=self.perform_sync(grades_error=True)
-        self.assertEqual(result['data'],old);self.assertFalse(result['job']['running'])
+        self.assertEqual(result['data']['grades'],old['grades'])
+        self.assertEqual(result['data']['events'],[{'title':'new'}])
+        self.assertFalse(result['job']['running'])
+        self.assertIn('成绩',result['job']['message']);self.assertIn('更新未完成',result['job']['message'])
         self.assertTrue(result['settings']['ready'])
 
     def test_atomic_cache_and_session_commit(self):

@@ -64,11 +64,11 @@ jobs:
       - name: Prepare APK and checksums
         run: |
           mkdir -p android-release
-          cp android/app/build/outputs/apk/release/app-release.apk android-release/CampoReader-Android-0.1.0.apk
+          cp android/app/build/outputs/apk/release/app-release.apk android-release/CampoReader-Android-0.1.1.apk
           cp android/README.md android-release/README.md
           cd android-release
-          sha256sum CampoReader-Android-0.1.0.apk > SHA256SUMS.txt
-          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose CampoReader-Android-0.1.0.apk
+          sha256sum CampoReader-Android-0.1.1.apk > SHA256SUMS.txt
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose CampoReader-Android-0.1.1.apk
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -82,5 +82,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view android-v0.1.0 >/dev/null 2>&1 && exit 0
-          gh release create android-v0.1.0 android-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title 'Campo Reader Android 0.1.0 — local preview' --notes-file android/release-notes.md
+          gh release view android-v0.1.1 >/dev/null 2>&1 && exit 0
+          gh release create android-v0.1.1 android-release/* --target "$GITHUB_SHA" --prerelease --latest=false --title 'Campo Reader Android 0.1.1 — local preview' --notes-file android/release-notes.md

@@ -64,7 +64,7 @@ public class MainActivity extends ComponentActivity {
     public WebView getAppWebView(){return web;}
     public class MobileBridge {
         @JavascriptInterface public void exportPdf(String url,String title){if(local(url))runOnUiThread(()->exportDocument(url,title));}
-        @JavascriptInterface public void about(){runOnUiThread(()->new AlertDialog.Builder(MainActivity.this).setTitle("Campo Reader "+BuildConfig.APP_VERSION).setMessage("Android 测试版\n\n数据保存在此手机。同步直接连接 FAU，不经过其他服务器。\n\n自动更新在应用前台运行时进行。清除应用数据或卸载会删除本机账号和缓存。\n\n此工具并非 FAU 官方应用。").setPositiveButton("知道了",null).setNeutralButton("项目页面",(d,i)->openExternal("https://github.com/vMarkEvanv/campo-reader")).show());}
+        @JavascriptInterface public void about(){runOnUiThread(()->new AlertDialog.Builder(MainActivity.this).setTitle("Campo Reader "+BuildConfig.APP_VERSION).setMessage("自动更新在应用前台运行时进行。清除应用数据或卸载会删除账号和已保存的数据。\n\n此工具并非 FAU 官方应用。").setPositiveButton("知道了",null).setNeutralButton("项目页面",(d,i)->openExternal("https://github.com/vMarkEvanv/campo-reader")).show());}
     }
     private void exportDocument(String url,String title){
         if(!local(url))return;toast("正在准备 PDF…");app.worker.execute(()->{
