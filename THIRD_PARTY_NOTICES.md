@@ -16,3 +16,13 @@ This application includes third-party software. Their licenses and notices are r
 - recurring-ical-events: LGPL-3.0. https://github.com/niccokunzmann/python-recurring-ical-events
 - tzdata: Apache-2.0; underlying timezone data is public domain. https://github.com/python/tzdata
 - PyInstaller bootloader: GPL with exception for distributed applications. https://pyinstaller.org/en/stable/license.html
+
+Android application additionally uses:
+
+- Chaquopy: MIT. https://github.com/chaquo/chaquopy
+- CPython: Python Software Foundation License. https://docs.python.org/3/license.html
+- AndroidX: Apache-2.0. https://source.android.com/docs/setup/about/licenses
+- Android System WebView: installed and maintained by the device; Chromium and its third-party notices apply. No separate Chromium binary or Playwright is bundled in the Android APK.
+- python-dateutil: Apache-2.0 / BSD-3-Clause. https://github.com/dateutil/dateutil
+
+Android includes only the shared Python dependencies plus the Android runtime; the Windows-only components listed above are not bundled in the APK.
