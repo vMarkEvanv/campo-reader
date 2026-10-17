@@ -90,6 +90,9 @@ public class LocalAppTest {
             // Production continues to reject data: documents and non-FAU requests.
             v.setWebViewClient(new WebViewClient(){
                 @Override public WebResourceResponse shouldInterceptRequest(WebView w,WebResourceRequest r){
+                    if(r.getUrl().toString().endsWith("/qisserver/pages/cs/sys/portal/hisinoneStartPage.faces")){
+                        try{return new WebResourceResponse("text/html","UTF-8",app.getAssets().open("documents-fixture.html"));}catch(java.io.IOException e){throw new AssertionError(e);}
+                    }
                     if(r.getUrl().toString().equals(fixtureUrl))return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream(fixture.getBytes(StandardCharsets.UTF_8)));
                     return client.shouldInterceptRequest(w,r);
                 }

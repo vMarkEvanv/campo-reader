@@ -32,7 +32,7 @@ class Locator:
         while not self.is_visible():
             if time.monotonic()>deadline:raise DataError('Campo 操作入口未出现，原有数据保留。')
             self.page.wait_for_timeout(150)
-        if not self.page.evaluate('(()=>{const e='+self.expression()+';if(!e)return false;e.click();return true})()'):raise DataError('Campo 按钮已失效，请重试。')
+        if not self.page.evaluate('(()=>{const e='+self.expression()+';if(!e)return false;e.scrollIntoView({block:"center",inline:"nearest"});const target=e.matches("a,button,input,[role=button]")?e:(e.querySelector("a,button,input[type=submit],[role=button]")||e);target.click();return true})()'):raise DataError('Campo 按钮已失效，请重试。')
         if not no_wait_after:self.page.wait_for_timeout(250);self.page.wait_for_load_state()
     def select_option(self,value=None,**kwargs):
         if not self.page.evaluate('(()=>{const e='+self.expression()+';if(!e||!Array.from(e.options).some(o=>o.value==='+json.dumps(value)+'))return false;e.value='+json.dumps(value)+';e.dispatchEvent(new Event("input",{bubbles:true}));e.dispatchEvent(new Event("change",{bubbles:true}));return true})()'):raise DataError('Campo 学期选项未识别，原有数据保留。')

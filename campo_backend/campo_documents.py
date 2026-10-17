@@ -8,7 +8,7 @@ from .campo_source.core import HOME, DataError
 from .campo_source import scripts
 from .campo_workspace import safe_pdf_url, fetch_pdf, stamp, MAX_PDF
 
-NAVIGATION = r'''(() => Array.from(document.querySelectorAll('a,button,[role=tab]')).map(e=>({id:e.id,label:(e.innerText||e.getAttribute('aria-label')||e.title||'').replace(/\s+/g,' ').trim(),href:e.tagName==='A'?e.href:'',role:e.getAttribute('role')||'',visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})).filter(e=>/^(?:Bescheinigungen\s*\/\s*Documents?|Documents?|Bescheinigungen|Studienservice|Student services?|Study documents|Studiendokumente)$/i.test(e.label)))()'''
+NAVIGATION = r'''(() => Array.from(document.querySelectorAll('a,button,[role=tab]')).map(e=>({id:e.id,label:(e.innerText||e.getAttribute('aria-label')||e.title||'').replace(/\s+/g,' ').trim(),href:e.tagName==='A'?e.href:'',role:e.getAttribute('role')||'',action:!!e.getAttribute('onclick'),selected:e.getAttribute('aria-selected')==='true',visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})).filter(e=>/^(?:Bescheinigungen\s*\/\s*Documents?|Documents?|Bescheinigungen|Studienservice|Student services?|Study documents|Studiendokumente)$/i.test(e.label)))()'''
 INDEX = r'''(() => Array.from(document.querySelectorAll('a,button,input[type=submit]')).map(e=>{const row=e.closest('tr,li')||e.parentElement;const label=(e.innerText||e.value||e.title||e.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim();const marker=e.querySelector('img')||row?.querySelector('img');const pdf=/pdf/i.test((marker?.getAttribute('src')||'')+' '+(marker?.alt||'')+' '+e.title+' '+e.className);return {id:e.id,label,href:e.tagName==='A'?e.href:'',pdf,form:!!e.closest('form')};}).filter(e=>e.label && e.label.length<250 && (e.pdf||/\.pdf(?:[?#]|$)|reportFile|downloadReport|\/reporting\//i.test(e.href)) && !/anmelden|abmelden|logout|upload|delete|löschen|submit application/i.test(e.label)).slice(0,100))()'''
 
 def key_for(title):return hashlib.sha256(title.casefold().encode()).hexdigest()[:24]
@@ -29,7 +29,7 @@ def locate(page, item):
 
 def activate(page,item):
     href=item.get('href','')
-    if href and safe_pdf_url(href) and not href.rstrip('/').endswith('#'):
+    if href and safe_pdf_url(href) and not href.rstrip('/').endswith('#') and item.get('role')!='tab' and not item.get('action') and '#' not in href:
         page.goto(href,wait_until='domcontentloaded',timeout=25000)
     else:
         locate(page,item).click(timeout=10000)
@@ -58,15 +58,22 @@ def discover(page,expected):
     candidates=doc or services
     if not candidates:raise DataError('首页未找到 Documents / Bescheinigungen 入口。')
     activate(page,candidates[0]);page.wait_for_timeout(1000);identity(page,expected)
-    # Student services contains a separate Documents tab; do not stay on My study programmes.
-    for _ in range(3):
+    # JSF tabs may be wrappers around a child link and render their body asynchronously.
+    # Wait for a directory result; clicking a selected tab repeatedly can restart loading.
+    deadline=time.monotonic()+15
+    activated=set()
+    while time.monotonic()<deadline:
         index=read_index(page)
         if index:return index
         controls=page.evaluate(NAVIGATION)
         tabs=[c for c in controls if c.get('visible',True) and re.fullmatch(r'Documents?|Bescheinigungen|Study documents|Studiendokumente',c.get('label',''),re.I)]
-        if not tabs:break
-        selected=sorted(tabs,key=lambda c:c.get('role')!='tab')[0]
-        activate(page,selected);page.wait_for_timeout(1000);identity(page,expected)
+        for selected in sorted(tabs,key=lambda c:c.get('role')!='tab'):
+            key=selected['label'].casefold()
+            if key in activated or selected.get('selected'):continue
+            activate(page,selected);activated.add(key)
+            break
+        page.wait_for_timeout(300)
+        identity(page,expected)
     raise DataError('已进入学生服务，但未读取到 Documents 文档列表；旧文件已保留。')
 
 PARAMETERS = r'''(() => Array.from(document.querySelectorAll('[id*="jobConfigurationButtonsOverlay"] select')).filter(e=>!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)).map(e=>({id:e.id,options:Array.from(e.options).map(o=>({label:o.textContent,value:o.value,selected:o.selected})).filter(o=>o.label.trim())})))()'''

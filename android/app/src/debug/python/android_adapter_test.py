@@ -19,6 +19,9 @@ def check():
     page.locator('#term').select_option('b')
     assert page.evaluate('document.querySelector("#term").value')=='b'
     assert isinstance(rpc('cookies'),list)
+    from campo_backend.campo_documents import discover
+    rows=discover(page,'Synthetic')
+    assert len(rows)==1 and rows[0]['category']=='enrolment'
     return 'passed'
 
 _stage=None
