@@ -107,7 +107,7 @@ public class RemoteBrowser {
                 case "close":view.stopLoading();for(WebView popup:popups)popup.destroy();popups.clear();done.accept(true);break;
                 default:throw new IllegalArgumentException();
                 }
-            }catch(Exception e){result.complete("{\"ok\":false,\"error\":\"手机浏览器操作未完成。\"}");}
+            }catch(Exception e){try{result.complete(new JSONObject().put("ok",false).put("error",BuildConfig.DEBUG ? "浏览器适配检查: "+op+"/"+e.getClass().getSimpleName() : "手机浏览器操作未完成。").toString());}catch(Exception ignored){result.complete("{\"ok\":false}");}}
         });
         try{return result.get(35,TimeUnit.SECONDS);}catch(Exception e){return "{\"ok\":false,\"error\":\"手机浏览器响应超时，请保持应用在前台后重试。\"}";}
     }
