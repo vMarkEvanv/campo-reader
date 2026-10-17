@@ -53,8 +53,8 @@ def discover(page,expected):
     identity(page,expected)
     controls=page.evaluate(NAVIGATION)
     if not isinstance(controls,list):raise DataError('未识别到 Documents 导航入口。')
-    doc=[c for c in controls if re.search(r'documents?|bescheinigungen',c.get('label',''),re.I)]
-    services=[c for c in controls if re.fullmatch(r'Studienservice|Student services?',c.get('label',''),re.I)]
+    doc=[c for c in controls if c.get('visible',True) and re.search(r'documents?|bescheinigungen',c.get('label',''),re.I)]
+    services=[c for c in controls if c.get('visible',True) and re.fullmatch(r'Studienservice|Student services?',c.get('label',''),re.I)]
     candidates=doc or services
     if not candidates:raise DataError('首页未找到 Documents / Bescheinigungen 入口。')
     activate(page,candidates[0]);page.wait_for_timeout(1000);identity(page,expected)
