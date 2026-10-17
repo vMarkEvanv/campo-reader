@@ -4,6 +4,10 @@ import androidx.test.core.app.ActivityScenario;
 import androidx.test.ext.junit.runners.AndroidJUnit4;
 import com.chaquo.python.Python;
 import org.junit.*;
+import android.webkit.*;
+import android.graphics.Bitmap;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.runner.RunWith;
 import org.json.*;
 import java.util.concurrent.*;
@@ -48,9 +52,25 @@ public class LocalAppTest {
     @Test public void officialBrowserAdapterIsIsolated()throws Exception{
         assertTrue(RemoteBrowser.official("https://www.campo.fau.de/qisserver/"));assertFalse(RemoteBrowser.official("https://www.campo.fau.de.evil.example/"));assertFalse(RemoteBrowser.official("http://www.campo.fau.de/"));assertFalse(RemoteBrowser.official("https://evil@www.campo.fau.de/"));
         JSONObject blocked=new JSONObject(app.browser.call("goto","{\"url\":\"http://192.168.2.60:8080\"}"));assertFalse(blocked.getBoolean("ok"));
-        CompletableFuture<Boolean> loaded=new CompletableFuture<>();
-        activity.onActivity(a->{app.browser.view.loadDataWithBaseURL("https://www.campo.fau.de/qisserver/fixture","<html><body><a id='x:logoutLink'></a><button id='x:avatarInfobox:open' title='My profile: Synthetic Student'></button><select id='term'><option value='a'>Summer semester 2026</option><option value='b'>Winter semester 2026</option></select><button id='click' onclick=\"document.body.dataset.clicked='yes'\">Read</button></body></html>","text/html","UTF-8","https://www.campo.fau.de/qisserver/fixture");loaded.complete(true);});loaded.get();
-        Thread.sleep(800);
-        String result=Python.getInstance().getModule("android_adapter_test").callAttr("check").toString();assertEquals("passed",result);
+        final String fixtureUrl="https://www.campo.fau.de/qisserver/fixture";
+        final String fixture="<html><body><a id='x:logoutLink'></a><button id='x:avatarInfobox:open' title='My profile: Synthetic Student'></button><select id='term'><option value='a'>Summer semester 2026</option><option value='b'>Winter semester 2026</option></select><button id='click' onclick=\"document.body.dataset.clicked='yes'\">Read</button></body></html>";
+        AtomicReference<WebViewClient> original=new AtomicReference<>();
+        activity.onActivity(a->{
+            WebView v=app.browser.view;WebViewClient client=v.getWebViewClient();original.set(client);
+            // Serve only this synthetic HTTPS request in the instrumentation process.
+            // Production continues to reject data: documents and non-FAU requests.
+            v.setWebViewClient(new WebViewClient(){
+                @Override public WebResourceResponse shouldInterceptRequest(WebView w,WebResourceRequest r){
+                    if(r.getUrl().toString().equals(fixtureUrl))return new WebResourceResponse("text/html","UTF-8",new ByteArrayInputStream(fixture.getBytes(StandardCharsets.UTF_8)));
+                    return client.shouldInterceptRequest(w,r);
+                }
+                @Override public boolean shouldOverrideUrlLoading(WebView w,WebResourceRequest r){return client.shouldOverrideUrlLoading(w,r);}
+                @Override public void onPageStarted(WebView w,String url,Bitmap icon){client.onPageStarted(w,url,icon);}
+                @Override public void onPageFinished(WebView w,String url){client.onPageFinished(w,url);}
+            });
+        });
+        try{
+            String result=Python.getInstance().getModule("android_adapter_test").callAttr("check").toString();assertEquals("passed",result);
+        }finally{activity.onActivity(a->app.browser.view.setWebViewClient(original.get()));}
     }
 }

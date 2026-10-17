@@ -4,6 +4,7 @@ def check():
     class Context:
         def cookies(self,url):return []
     page=Page(Context())
+    page.goto("https://www.campo.fau.de/qisserver/fixture")
     import time
     deadline=time.monotonic()+15
     while True:
