@@ -2,11 +2,12 @@
 'use strict';
 (()=>{
  document.documentElement.classList.add('android-app');
- ['desktop-check-update','desktop-data-folder'].forEach(id=>document.getElementById(id).remove());
+ ['desktop-check-update','desktop-data-folder'].forEach(id=>{const el=document.getElementById(id);if(el)el.remove();});
  const about=document.createElement('button');about.className='settings-button';about.textContent='关于 Campo Reader';about.id='android-about';about.onclick=()=>CampoMobile.about();document.querySelector('.sidebar-bottom').append(about);
  document.addEventListener('click',e=>{const link=e.target.closest('a.download-button');if(!link||!link.pathname.endsWith('/api/campo/document'))return;e.preventDefault();e.stopImmediatePropagation();CampoMobile.exportPdf(link.href,link.download||'Campo document.pdf');},true);
  const header=document.querySelector('#settings-form .setting-row small');if(header)header.textContent='在应用前台按设定间隔更新；切到后台或关闭后暂停。';
  const description=document.querySelector('.subtitle');if(description)description.textContent='本机保存 · 直接连接 FAU';
+ document.querySelector('.page-nav').addEventListener('click',()=>{if(description)description.textContent='本机保存 · 直接连接 FAU';});
  const week=document.getElementById('week');
  const date=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Berlin'}).format(new Date());
  // Compact day controls use the existing week data and navigation.

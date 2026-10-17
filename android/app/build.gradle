@@ -49,7 +49,9 @@ tasks.register('prepareCampoAssets', Copy) {
     from('src/main/mobile')
     into layout.buildDirectory.dir('generated/campoAssets/public')
 }
+tasks.named('preBuild') { dependsOn 'prepareCampoPython', 'prepareCampoAssets' }
 tasks.configureEach { task ->
+    if(task.name.toLowerCase().contains('lint')) task.dependsOn 'prepareCampoPython', 'prepareCampoAssets'
     if(task.name.startsWith('generate') && task.name.endsWith('PythonRequirementsAssets')) task.dependsOn 'prepareCampoPython'
     if(task.name.toLowerCase().contains('python') && task.name != 'prepareCampoPython') task.dependsOn 'prepareCampoPython'
     if(task.name.startsWith('merge') && task.name.endsWith('Assets')) task.dependsOn 'prepareCampoAssets'
