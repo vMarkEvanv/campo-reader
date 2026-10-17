@@ -5,7 +5,7 @@ import secrets
 import json
 import re
 import os
-from cryptography.fernet import Fernet, InvalidToken
+from .credential_cipher import make_cipher, InvalidToken
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -29,15 +29,7 @@ class Campo:
     def __init__(self, root):
         self.root = Path(root) / 'data/campo'
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        key_path = self.root / 'calendar.key'
-        if not key_path.exists():
-            try:
-                fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, 'wb') as stream: stream.write(Fernet.generate_key())
-            except FileExistsError:
-                pass
-        key_path.chmod(0o600)
-        self.cipher = Fernet(key_path.read_bytes())
+        self.cipher = make_cipher(self.root)
         self.public_user = getpass.getuser()
         self.csrf = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
@@ -347,7 +339,7 @@ class Campo:
                     store = self.store(user)
                     try: storage_state = self.restore_session(self.preferences(store, account))
                     finally: store.close()
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with sync_playwright() as pw:
                 browser = launch_browser(pw)
                 context = browser.new_context(storage_state=storage_state) if storage_state is not None else browser.new_context()
@@ -501,7 +493,7 @@ class Campo:
 
     def sync_courses(self,user,account):
         try:
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with self.lock:
                 store=self.store(user)
                 try:data=store.read(account);saved=self.restore_session(self.preferences(store,account))
@@ -546,7 +538,7 @@ class Campo:
 
     def sync_documents(self,user,account,key=None,term=""):
         try:
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with self.lock:
                 store=self.store(user)
                 try:
