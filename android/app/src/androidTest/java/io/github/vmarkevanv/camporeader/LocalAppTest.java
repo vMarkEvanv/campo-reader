@@ -63,6 +63,21 @@ public class LocalAppTest {
         waitJs("document.getElementById('sync-progress').hidden","true");
         assertEquals("true",js("document.getElementById('week').textContent.includes('Fresh staged timetable')"));
     }
+    @Test public void optionalGithubUpdatesAndPdfCapture()throws Exception{
+        assertEquals("true",js("!!document.getElementById('android-check-update')"));
+        String prefix=AndroidUpdater.REPO+"releases/download/android-v9.0.0/";
+        JSONArray assets=new JSONArray().put(new JSONObject().put("name","CampoReader-Android-9.0.0.apk").put("browser_download_url",prefix+"CampoReader-Android-9.0.0.apk")).put(new JSONObject().put("name","SHA256SUMS.txt").put("browser_download_url",prefix+"SHA256SUMS.txt"));
+        JSONObject release=new JSONObject().put("tag_name","android-v9.0.0").put("prerelease",true).put("assets",assets);
+        assertEquals("9.0.0",AndroidUpdater.candidate(new JSONArray().put(release),"0.1.2").getString("version"));
+        assertNull(AndroidUpdater.candidate(new JSONArray().put(release),"9.0.0"));
+        release.put("draft",true);assertNull(AndroidUpdater.candidate(new JSONArray().put(release),"0.1.2"));release.put("draft",false);
+        assets.getJSONObject(0).put("browser_download_url","https://evil.example/update.apk");assertNull(AndroidUpdater.candidate(new JSONArray().put(release),"0.1.2"));
+        assertTrue(AndroidUpdater.compare("0.1.10","0.1.2")>0);
+        assertFalse(AndroidUpdater.trusted("http://github.com/test"));assertFalse(AndroidUpdater.trusted("https://github.com.evil.example/test"));
+        try{app.browser.recordPdf("not pdf".getBytes(StandardCharsets.UTF_8));fail("Invalid PDF accepted");}catch(java.io.IOException expected){}
+        app.browser.recordPdf("%PDF-1.4\nSynthetic report\n%%EOF".getBytes(StandardCharsets.UTF_8));
+        assertEquals("passed",Python.getInstance().getModule("android_adapter_test").callAttr("check_pdf").toString());
+    }
     @Test public void officialBrowserAdapterIsIsolated()throws Exception{
         assertTrue(RemoteBrowser.official("https://www.campo.fau.de/qisserver/"));assertFalse(RemoteBrowser.official("https://www.campo.fau.de.evil.example/"));assertFalse(RemoteBrowser.official("http://www.campo.fau.de/"));assertFalse(RemoteBrowser.official("https://evil@www.campo.fau.de/"));
         JSONObject blocked=new JSONObject(app.browser.call("goto","{\"url\":\"http://192.168.2.60:8080\"}"));assertFalse(blocked.getBoolean("ok"));

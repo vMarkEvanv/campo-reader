@@ -19,6 +19,7 @@ import java.io.*;
 
 public class MainActivity extends ComponentActivity {
     private WebView web;
+    private AndroidUpdater updater;
     private TextView loading;
     private CampoApplication app;
     private ValueCallback<Uri[]> fileCallback;
@@ -26,7 +27,7 @@ public class MainActivity extends ComponentActivity {
     private String exportTitle="Campo document.pdf";
     private static final int PICK_PDF=100,SAVE_PDF=101;
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);app=(CampoApplication)getApplication();
+        super.onCreate(state);app=(CampoApplication)getApplication();updater=new AndroidUpdater(this);
         WindowCompat.setDecorFitsSystemWindows(getWindow(),false);
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(16,19,21));setContentView(root);
         ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{Insets b=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.ime());v.setPadding(b.left,b.top,b.right,b.bottom);return insets;});
@@ -56,6 +57,7 @@ public class MainActivity extends ComponentActivity {
             web.evaluateJavascript("(()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true}if(location.hash&&location.hash!=='#calendar'){document.getElementById('tab-calendar').click();return true}return false})()",handled->{if(!"true".equals(handled))moveTaskToBack(true);});
         }});
         launch();
+        updater.check(false);
     }
     private boolean local(String url){try{Uri u=Uri.parse(url);return app.runtime!=null&&"http".equals(u.getScheme())&&"127.0.0.1".equals(u.getHost())&&u.getPort()==Uri.parse(app.runtime.getString("origin")).getPort()&&u.getUserInfo()==null;}catch(Exception e){return false;}}
     private void launch(){loading.setVisibility(View.VISIBLE);app.ready.whenComplete((runtime,error)->runOnUiThread(()->{if(isFinishing())return;if(error!=null){loading.setText("Campo Reader 未能启动\n请关闭后重新打开应用");return;}try{web.loadUrl(runtime.getString("url"));}catch(Exception e){loading.setText("请重新打开应用。");}}));}
@@ -64,7 +66,8 @@ public class MainActivity extends ComponentActivity {
     public WebView getAppWebView(){return web;}
     public class MobileBridge {
         @JavascriptInterface public void exportPdf(String url,String title){if(local(url))runOnUiThread(()->exportDocument(url,title));}
-        @JavascriptInterface public void about(){runOnUiThread(()->new AlertDialog.Builder(MainActivity.this).setTitle("Campo Reader "+BuildConfig.APP_VERSION).setMessage("自动更新在应用前台运行时进行。清除应用数据或卸载会删除账号和已保存的数据。\n\n此工具并非 FAU 官方应用。").setPositiveButton("知道了",null).setNeutralButton("项目页面",(d,i)->openExternal("https://github.com/vMarkEvanv/campo-reader")).show());}
+        @JavascriptInterface public void checkUpdate(){runOnUiThread(()->updater.check(true));}
+        @JavascriptInterface public void about(){runOnUiThread(()->new AlertDialog.Builder(MainActivity.this).setTitle("Campo Reader "+BuildConfig.APP_VERSION).setMessage("课表与成绩在应用前台按设置同步。应用启动时会检查新版本，可自行选择是否安装。清除应用数据或卸载会删除账号和已保存的数据。\n\n此工具并非 FAU 官方应用。").setPositiveButton("知道了",null).setNeutralButton("检查更新",(d,i)->updater.check(true)).show());}
     }
     private void exportDocument(String url,String title){
         if(!local(url))return;toast("正在准备 PDF…");app.worker.execute(()->{
@@ -81,11 +84,12 @@ public class MainActivity extends ComponentActivity {
     static void copy(InputStream in,OutputStream out)throws IOException{byte[] buffer=new byte[32768];int n;while((n=in.read(buffer))!=-1)out.write(buffer,0,n);}
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==AndroidUpdater.INSTALL_PERMISSION){updater.resumeInstall();return;}
         if(request==PICK_PDF&&fileCallback!=null){Uri[] urls=null;if(result==RESULT_OK&&data!=null){if(data.getClipData()!=null){int n=Math.min(20,data.getClipData().getItemCount());urls=new Uri[n];for(int i=0;i<n;i++)urls[i]=data.getClipData().getItemAt(i).getUri();}else if(data.getData()!=null)urls=new Uri[]{data.getData()};}fileCallback.onReceiveValue(urls);fileCallback=null;}
         if(request==SAVE_PDF&&result==RESULT_OK&&data!=null&&data.getData()!=null&&exportFile!=null){Uri uri=data.getData();File file=exportFile;app.worker.execute(()->{try(InputStream in=new FileInputStream(file);OutputStream out=getContentResolver().openOutputStream(uri)){copy(in,out);toast("PDF 已保存。");}catch(Exception e){toast("未能保存 PDF，请重新选择位置。");}});}
     }
     @Override protected void onStart(){super.onStart();setForeground(true);}
     @Override protected void onStop(){setForeground(false);super.onStop();}
     private void setForeground(boolean value){app.ready.thenRun(()->app.worker.execute(()->Python.getInstance().getModule("android_runtime").callAttr("foreground",value)));}
-    @Override protected void onDestroy(){if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}if(web!=null){web.removeJavascriptInterface("CampoMobile");web.destroy();}super.onDestroy();}
+    @Override protected void onDestroy(){if(updater!=null)updater.network.shutdownNow();if(fileCallback!=null){fileCallback.onReceiveValue(null);fileCallback=null;}if(web!=null){web.removeJavascriptInterface("CampoMobile");web.destroy();}super.onDestroy();}
 }

@@ -25,7 +25,7 @@ class Locator:
     def first(self):return self
     def expression(self):
         if self.selector:return 'document.querySelector('+json.dumps(self.selector)+')'
-        return 'Array.from(document.querySelectorAll("a,[role=link]")).find(e=>(e.innerText||e.getAttribute("aria-label")||"").trim()==='+json.dumps(self.name)+')'
+        return 'Array.from(document.querySelectorAll("a,button,[role=link],[role=tab]")).find(e=>(e.innerText||e.getAttribute("aria-label")||"").trim()==='+json.dumps(self.name)+')'
     def is_visible(self):return self.page.evaluate('(()=>{const e='+self.expression()+';return !!e&&!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})()')
     def click(self,timeout=10000,no_wait_after=False):
         deadline=time.monotonic()+timeout/1000
@@ -48,13 +48,22 @@ class Page:
     def remove_listener(self,name,fn):
         if fn in self.listeners.get(name,[]):self.listeners[name].remove(fn)
     def _downloads(self):
-        for url in rpc('downloads') or []:
-            if not official(url):continue
-            # Native WebView reports the final official PDF URL, including HttpOnly cookies.
-            from campo_backend.campo_workspace import fetch_pdf
-            cookies={c['name']:c['value'] for c in self.context.cookies(url)}
-            try:content=fetch_pdf(url,cookies)
-            except DataError:continue
+        for item in rpc('downloads') or []:
+            # PDF response bytes captured natively include one-use report URLs and popups.
+            if isinstance(item,dict) and item.get('path'):
+                source=Path(item['path'])
+                from java import jclass
+                root=Path(str(jclass('io.github.vmarkevanv.camporeader.CampoApplication').instance.getCacheDir().getAbsolutePath()))/'report-downloads'
+                if source.parent.resolve()!=root.resolve():raise DataError('Documents 文件位置无效。')
+                try:content=source.read_bytes()
+                finally:source.unlink(missing_ok=True)
+            else:
+                url=item.get('url','') if isinstance(item,dict) else item
+                if not official(url):continue
+                from campo_backend.campo_workspace import fetch_pdf
+                cookies={c['name']:c['value'] for c in self.context.cookies(url)}
+                content=fetch_pdf(url,cookies)
+            if not content.startswith(b'%PDF-') or len(content)>10*1024*1024:raise DataError('Documents 未返回有效 PDF。')
             fd=tempfile.NamedTemporaryFile(suffix='.pdf',dir=self.context.temp,delete=False);fd.write(content);fd.close()
             for fn in list(self.listeners.get('download',[])):fn(Download(fd.name))
     def goto(self,url,wait_until=None,timeout=25000):

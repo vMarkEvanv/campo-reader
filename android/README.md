@@ -21,7 +21,7 @@ gradle -p android assembleDebug
 gradle -p android connectedDebugAndroidTest
 ```
 
-发布签名由 `ANDROID_KEYSTORE_PATH` 与 `ANDROID_KEYSTORE_PASSWORD` 环境变量提供。签名密钥不在仓库内。GitHub Actions 在 Android 模拟器通过检查后发布独立 Android 预发行，不改 Windows 稳定更新源。当前版本 0.1.1 / versionCode 2。
+发布签名由 `ANDROID_KEYSTORE_PATH` 与 `ANDROID_KEYSTORE_PASSWORD` 环境变量提供。签名密钥不在仓库内。GitHub Actions 在 Android 模拟器通过检查后发布独立 Android 预发行，不改 Windows 稳定更新源。当前版本 0.1.2 / versionCode 3。
 
 ## 架构与限制
 
@@ -31,3 +31,7 @@ gradle -p android connectedDebugAndroidTest
 - App UI 独立 WebView 仅能加载本机打包页面，官方链接交给外部浏览器；本机 PDF 通过系统保存对话框 / 私有 FileProvider 导出，无全盘存储权限。
 - 当前仅实现已有登录流程。验证码或学校额外验证会明确停止，不绕过验证。Campo 改版或个别设备 WebView 差异可能需要适配，请报告错误提示；不要发送密码。
 - 模拟器覆盖启动、真实 Python 运行、离线本地账号/分类、密钥加密和浏览器适配；不能替代真实 FAU 账号端到端核验，小米真机由用户测试。
+
+## 应用更新
+
+启动时后台检查 GitHub 的 Android Releases，发现新版本时提示，选择“暂不更新”即可继续使用。“检查更新”按钮和“关于”窗口均可手动检查。下载后校验 SHA-256、包名、版本及安装签名，再调用系统安装器；不会强制安装或上传学校账号。首次需要在系统设置中允许此应用安装更新。GitHub 不可达时自动检查静默失败，可稍后手动重试。Windows Releases 不会被识别为 Android 更新。

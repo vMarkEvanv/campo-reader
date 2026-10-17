@@ -41,3 +41,18 @@ def publish_stage_test():
 
 def finish_stage_test():
     c,u,a,binding=_stage;c.jobs[(u,a)].update(running=False,message='课表已更新；成绩更新未完成。')
+
+def check_pdf():
+    import tempfile
+    from pathlib import Path
+    from android_browser import Page
+    class Context:pass
+    with tempfile.TemporaryDirectory() as folder:
+        context=Context();context.temp=folder
+        page=Page(context);received=[]
+        page.on('download',lambda download:received.append(Path(download.path()).read_bytes()))
+        page._downloads()
+        assert received==[b'%PDF-1.4\nSynthetic report\n%%EOF']
+        page._downloads()
+        assert len(received)==1
+    return 'passed'

@@ -3,6 +3,7 @@
 (()=>{
  document.documentElement.classList.add('android-app');
  ['desktop-check-update','desktop-data-folder'].forEach(id=>{const el=document.getElementById(id);if(el)el.remove();});
+ const update=document.createElement('button');update.className='settings-button';update.textContent='检查更新';update.id='android-check-update';update.onclick=()=>CampoMobile.checkUpdate();document.querySelector('.sidebar-bottom').append(update);
  const about=document.createElement('button');about.className='settings-button';about.textContent='关于 Campo Reader';about.id='android-about';about.onclick=()=>CampoMobile.about();document.querySelector('.sidebar-bottom').append(about);
  document.addEventListener('click',e=>{const link=e.target.closest('a.download-button');if(!link||!link.pathname.endsWith('/api/campo/document'))return;e.preventDefault();e.stopImmediatePropagation();CampoMobile.exportPdf(link.href,link.download||'Campo document.pdf');},true);
  const header=document.querySelector('#settings-form .setting-row small');if(header)header.textContent='在应用前台按设定间隔更新；切到后台或关闭后暂停。';

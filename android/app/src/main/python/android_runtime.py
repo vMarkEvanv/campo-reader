@@ -13,7 +13,7 @@ def start(root,public):
         def do_GET(self):
             from urllib.parse import urlsplit
             if urlsplit(self.path).path=='/api/app':
-                try:self.validate();self.reply(200,{'mode':'android','version':'0.1.1'})
+                try:self.validate();self.reply(200,{'mode':'android','version':'0.1.2'})
                 except Exception:self.reply(403,{'error':'请重新打开应用。'})
             else:super().do_GET()
     _server=DesktopServer(Path(root),Path(public));_server.RequestHandlerClass=MobileHandler;_server.desktop=False
