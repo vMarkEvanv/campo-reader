@@ -126,6 +126,7 @@ class CampoRefreshTests(unittest.TestCase):
         old=self.campo.snapshot('alice',self.account)['data']
         result=self.perform_sync(grades_error=True)
         self.assertEqual(result['data']['grades'],old['grades'])
+        self.assertIsNone(result['data']['grades_updated_at'])
         self.assertEqual(result['data']['events'],[{'title':'new'}])
         self.assertFalse(result['job']['running'])
         self.assertIn('成绩',result['job']['message']);self.assertIn('更新未完成',result['job']['message'])

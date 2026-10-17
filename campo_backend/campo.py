@@ -398,7 +398,8 @@ class Campo:
                 saved_session = self.cipher.encrypt(json.dumps(context.storage_state()).encode()).decode()
                 # Bind this verified identity before parallel stages; all later writes merge
                 # against the latest committed payload rather than an old snapshot.
-                self.commit_sync(user, account, binding, subscription, saved_session, credentials=credentials)
+                initial = dict(binding, calendar_updated_at=previous.get('calendar_updated_at',previous.get('synced_at')), grades_updated_at=previous.get('grades_updated_at',previous.get('synced_at')))
+                self.commit_sync(user, account, initial, subscription, saved_session, credentials=credentials)
                 completed, failed = [], []
                 expired = False
 
