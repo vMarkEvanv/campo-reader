@@ -1,6 +1,6 @@
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
 <a id="x:logoutLink"></a><button id="x:avatarInfobox:open" title="My profile: Synthetic Student"></button>
-<a id="services" href="#" onclick="event.preventDefault();document.getElementById('tabs').hidden=false">Student services</a>
+<div id="menu-host"></div><template id="menu-template"><a hidden id="services" href="#" onclick="event.preventDefault();document.getElementById('tabs').hidden=false">Student services</a>
 <ul id="tabs" hidden><li id="documents-wrapper" role="tab"><a href="#documents" onclick="event.preventDefault();this.parentNode.setAttribute('aria-selected','true');setTimeout(()=>{document.getElementById('reports').innerHTML='<a id=report href=#><img alt=PDF>Certificate of enrollment</a>'},1400)">Documents</a></li></ul>
-<div id="reports"></div>
+</template><script>setTimeout(()=>document.getElementById("menu-host").append(document.getElementById("menu-template").content.cloneNode(true)),700)</script><div id="reports"></div>
 </body></html>

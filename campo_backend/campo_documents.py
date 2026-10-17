@@ -8,7 +8,14 @@ from .campo_source.core import HOME, DataError
 from .campo_source import scripts
 from .campo_workspace import safe_pdf_url, fetch_pdf, stamp, MAX_PDF
 
-NAVIGATION = r'''(() => Array.from(document.querySelectorAll('a,button,[role=tab]')).map(e=>({id:e.id,label:(e.innerText||e.getAttribute('aria-label')||e.title||'').replace(/\s+/g,' ').trim(),href:e.tagName==='A'?e.href:'',role:e.getAttribute('role')||'',action:!!e.getAttribute('onclick'),selected:e.getAttribute('aria-selected')==='true',visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})).filter(e=>/^(?:Bescheinigungen\s*\/\s*Documents?|Documents?|Bescheinigungen|Studienservice|Student services?|Study documents|Studiendokumente)$/i.test(e.label)))()'''
+NAVIGATION = r'''(() => {
+ const match=/^(?:Bescheinigungen\s*\/\s*Documents?|Documents?\s*\/\s*Bescheinigungen|Documents?|Bescheinigungen|Studienservice|Student services?|Study documents|Studiendokumente)$/i;
+ return Array.from(document.querySelectorAll('a,button,[role=tab]')).map(e=>{
+  const label=[e.innerText,e.textContent,e.getAttribute('aria-label'),e.title].map(x=>(x||'').replace(/\s+/g,' ').trim()).find(x=>match.test(x));
+  return {id:e.id,label:label||'',href:e.tagName==='A'?e.href:'',role:e.getAttribute('role')||(e.closest('[role=tab]')?'tab':''),action:!!e.getAttribute('onclick'),selected:e.getAttribute('aria-selected')==='true',visible:!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)};
+ }).filter(e=>e.label);
+})()'''
+
 INDEX = r'''(() => Array.from(document.querySelectorAll('a,button,input[type=submit]')).map(e=>{const row=e.closest('tr,li');const label=(e.innerText||e.value||e.title||e.getAttribute('aria-label')||'').replace(/\s+/g,' ').trim();const marker=e.querySelector('img')||row?.querySelector('img');const pdf=/pdf/i.test((marker?.getAttribute('src')||'')+' '+(marker?.alt||'')+' '+e.title+' '+e.className);return {id:e.id,label,href:e.tagName==='A'?e.href:'',pdf,form:!!e.closest('form')};}).filter(e=>e.label && e.label.length<250 && (e.pdf||/\.pdf(?:[?#]|$)|reportFile|downloadReport|\/reporting\//i.test(e.href)) && !/anmelden|abmelden|logout|upload|delete|löschen|submit application/i.test(e.label)).slice(0,100))()'''
 
 def key_for(title):return hashlib.sha256(title.casefold().encode()).hexdigest()[:24]
@@ -32,8 +39,15 @@ def activate(page,item):
     if href and safe_pdf_url(href) and not href.rstrip('/').endswith('#') and item.get('role')!='tab' and not item.get('action') and '#' not in href:
         page.goto(href,wait_until='domcontentloaded',timeout=25000)
     else:
-        locate(page,item).click(timeout=10000)
+        if not item.get('visible',True):
+            # Collapsed navigation still contains real JSF actions. Invoke only the
+            # explicitly identified read-only Documents/Student services control.
+            target=('document.getElementById('+json.dumps(item['id'])+')') if item.get('id') else ('Array.from(document.querySelectorAll("a,button,[role=tab]")).find(e=>[e.innerText,e.textContent,e.getAttribute("aria-label"),e.title].some(t=>(t||"").replace(/\\s+/g," ").trim()==='+json.dumps(item.get('label',''))+'))')
+            clicked=page.evaluate('(()=>{const e='+target+';if(!e||e.disabled)return false;const t=e.matches("a,button")?e:(e.querySelector("a,button")||e);t.click();return true})()')
+            if not clicked:raise DataError('Documents 导航入口尚未准备好，请重新刷新。')
+        else:locate(page,item).click(timeout=10000)
         page.wait_for_timeout(500)
+        if not item.get('visible',True):page.wait_for_load_state(timeout=25000)
 
 def read_index(page):
     raw=page.evaluate(INDEX)
@@ -51,11 +65,19 @@ def read_index(page):
 def discover(page,expected):
     page.goto(HOME,wait_until='domcontentloaded',timeout=25000)
     identity(page,expected)
-    controls=page.evaluate(NAVIGATION)
-    if not isinstance(controls,list):raise DataError('未识别到 Documents 导航入口。')
-    doc=[c for c in controls if c.get('visible',True) and re.search(r'documents?|bescheinigungen',c.get('label',''),re.I)]
-    services=[c for c in controls if c.get('visible',True) and re.fullmatch(r'Studienservice|Student services?',c.get('label',''),re.I)]
-    candidates=doc or services
+    # Menu entries can arrive after the authenticated header, or live in a
+    # collapsed menu. Visibility alone does not mean an entry is unavailable.
+    ready=time.monotonic()+12
+    candidates=[]
+    while time.monotonic()<ready:
+        controls=page.evaluate(NAVIGATION)
+        if not isinstance(controls,list):raise DataError('未识别到 Documents 导航入口。')
+        doc=[c for c in controls if re.search(r'documents?|bescheinigungen',c.get('label',''),re.I)]
+        services=[c for c in controls if re.fullmatch(r'Studienservice|Student services?',c.get('label',''),re.I)]
+        candidates=([c for c in doc if c.get('visible',True)]+[c for c in services if c.get('visible',True)]+
+                    [c for c in services if not c.get('visible',True)]+[c for c in doc if not c.get('visible',True)])
+        if candidates:break
+        page.wait_for_timeout(300);identity(page,expected)
     if not candidates:raise DataError('首页未找到 Documents / Bescheinigungen 入口。')
     activate(page,candidates[0]);page.wait_for_timeout(1000);identity(page,expected)
     # JSF tabs may be wrappers around a child link and render their body asynchronously.

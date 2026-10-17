@@ -21,7 +21,7 @@ gradle -p android assembleDebug
 gradle -p android connectedDebugAndroidTest
 ```
 
-发布签名由 `ANDROID_KEYSTORE_PATH` 与 `ANDROID_KEYSTORE_PASSWORD` 环境变量提供。签名密钥不在仓库内。GitHub Actions 在 Android 模拟器通过检查后发布独立 Android 预发行，不改 Windows 稳定更新源。当前版本 0.1.3 / versionCode 4。
+发布签名由 `ANDROID_KEYSTORE_PATH` 与 `ANDROID_KEYSTORE_PASSWORD` 环境变量提供。签名密钥不在仓库内。GitHub Actions 在 Android 模拟器通过检查后发布独立 Android 预发行，不改 Windows 稳定更新源。当前版本 0.1.4 / versionCode 5。
 
 ## 架构与限制
 
