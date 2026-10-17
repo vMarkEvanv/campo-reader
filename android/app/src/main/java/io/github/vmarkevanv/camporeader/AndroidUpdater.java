@@ -21,7 +21,7 @@ final class AndroidUpdater {
     static final String REPO="https://github.com/vMarkEvanv/campo-reader/";
     final MainActivity activity;
     final ExecutorService network=Executors.newSingleThreadExecutor();
-    boolean checking=false,downloading=false;
+    boolean checking=false,downloading=false,promptOpen=false;
     File pending;
     AndroidUpdater(MainActivity activity){this.activity=activity;}
     static int compare(String a,String b){
@@ -46,6 +46,9 @@ final class AndroidUpdater {
     void ui(Runnable task){activity.runOnUiThread(()->{if(!activity.isFinishing()&&!activity.isDestroyed())task.run();});}
     void toast(String text){ui(()->Toast.makeText(activity,text,Toast.LENGTH_LONG).show());}
     void check(boolean manual){
+        if(downloading){if(manual)toast("更新正在下载。");return;}
+        if(promptOpen)return;
+        if(pending!=null&&pending.isFile()){if(manual)resumeInstallPrompt();return;}
         if(checking){if(manual)toast("正在检查更新…");return;}checking=true;if(manual)toast("正在检查更新…");
         network.execute(()->{try{
             JSONObject latest=null;
@@ -58,7 +61,7 @@ final class AndroidUpdater {
             if(latest==null){if(manual)toast("当前已是最新版本。");return;}
             JSONObject release=latest;
             ui(()->{String notes=release.optString("body");if(notes.length()>2500)notes=notes.substring(0,2500)+"…";
-                new AlertDialog.Builder(activity).setTitle("发现新版本 "+release.optString("version")).setMessage(notes+"\n\n下载后由你确认安装，账号和数据会保留。").setNegativeButton("暂不更新",null).setPositiveButton("下载更新",(d,i)->download(release)).show();});
+                promptOpen=true;new AlertDialog.Builder(activity).setOnDismissListener(d->promptOpen=false).setTitle("发现新版本 "+release.optString("version")).setMessage(notes+"\n\n下载后由你确认安装，账号和数据会保留。").setNegativeButton("暂不更新",null).setPositiveButton("下载更新",(d,i)->download(release)).show();});
         }catch(Exception e){if(manual)toast("暂时无法检查更新，请检查网络后重试。");}finally{ui(()->checking=false);}});
     }
     static boolean trusted(String url){try{URI u=new URI(url);String h=u.getHost();return "https".equals(u.getScheme())&&u.getUserInfo()==null&&(u.getPort()==-1||u.getPort()==443)&&(h!=null&&(h.equals("github.com")||h.equals("api.github.com")||h.equals("release-assets.githubusercontent.com")||h.equals("objects.githubusercontent.com")));}catch(Exception e){return false;}}
@@ -106,5 +109,6 @@ final class AndroidUpdater {
         }
         try{Uri uri=FileProvider.getUriForFile(activity,activity.getPackageName()+".files",pending);activity.startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/vnd.android.package-archive").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));}catch(ActivityNotFoundException e){toast("未找到系统安装程序。");}
     }
-    void resumeInstall(){if(pending!=null&&activity.getPackageManager().canRequestPackageInstalls())new AlertDialog.Builder(activity).setTitle("安装更新？").setMessage("现有账号与数据会保留。").setNegativeButton("稍后",null).setPositiveButton("安装",(d,i)->install()).show();}
+    void resumeInstallPrompt(){if(pending!=null)new AlertDialog.Builder(activity).setTitle("安装更新？").setMessage("更新已下载，现有账号与数据会保留。").setNegativeButton("稍后",null).setPositiveButton("安装",(d,i)->install()).show();}
+    void resumeInstall(){if(pending!=null&&activity.getPackageManager().canRequestPackageInstalls())resumeInstallPrompt();}
 }
