@@ -40,7 +40,7 @@ public class MainActivity extends ComponentActivity {
             @Override public boolean shouldOverrideUrlLoading(WebView w,WebResourceRequest r){String url=r.getUrl().toString();if(local(url))return false;openExternal(url);return true;}
             @Override public WebResourceResponse shouldInterceptRequest(WebView w,WebResourceRequest r){return local(r.getUrl().toString())?null:app.browser.blocked();}
             @Override public void onPageFinished(WebView w,String url){loading.setVisibility(View.GONE);}
-            @Override public void onReceivedError(WebView w,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame()){loading.setText("暂时无法打开本机界面\n点这里重试");loading.setVisibility(View.VISIBLE);}}
+            @Override public void onReceivedError(WebView w,WebResourceRequest r,WebResourceError e){if(r.isForMainFrame()){loading.setText("暂时无法打开页面\n点这里重试");loading.setVisibility(View.VISIBLE);}}
         });
         web.setWebChromeClient(new WebChromeClient(){
             @Override public boolean onShowFileChooser(WebView w,ValueCallback<Uri[]> callback,FileChooserParams params){
@@ -51,7 +51,7 @@ public class MainActivity extends ComponentActivity {
             @Override public boolean onJsConfirm(WebView w,String url,String message,JsResult result){new AlertDialog.Builder(MainActivity.this).setMessage(message).setPositiveButton("确认",(d,i)->result.confirm()).setNegativeButton("取消",(d,i)->result.cancel()).setOnCancelListener(d->result.cancel()).show();return true;}
         });
         web.setDownloadListener((url,ua,cd,mime,length)->{if(local(url))exportDocument(url,"Campo document.pdf");});
-        loading=new TextView(this);loading.setText("Campo Reader\n正在打开本机数据…");loading.setTextColor(Color.rgb(174,215,242));loading.setTextSize(19);loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(Color.rgb(16,19,21));root.addView(loading,new FrameLayout.LayoutParams(-1,-1));loading.setOnClickListener(v->launch());
+        loading=new TextView(this);loading.setText("Campo Reader\n正在加载…");loading.setTextColor(Color.rgb(174,215,242));loading.setTextSize(19);loading.setGravity(Gravity.CENTER);loading.setBackgroundColor(Color.rgb(16,19,21));root.addView(loading,new FrameLayout.LayoutParams(-1,-1));loading.setOnClickListener(v->launch());
         getOnBackPressedDispatcher().addCallback(this,new OnBackPressedCallback(true){@Override public void handleOnBackPressed(){
             web.evaluateJavascript("(()=>{const d=document.querySelector('dialog[open]');if(d){d.close();return true}if(location.hash&&location.hash!=='#calendar'){document.getElementById('tab-calendar').click();return true}return false})()",handled->{if(!"true".equals(handled))moveTaskToBack(true);});
         }});
@@ -73,7 +73,7 @@ public class MainActivity extends ComponentActivity {
                 File folder=new File(getCacheDir(),"exports");folder.mkdirs();File out=new File(folder,"Campo-document.pdf");
                 try(InputStream in=new FileInputStream(info.getString("path"));OutputStream stream=new FileOutputStream(out)){copy(in,stream);}
                 runOnUiThread(()->{if(isFinishing())return;exportFile=out;exportTitle=info.optString("title","Campo document.pdf");new AlertDialog.Builder(this).setTitle(exportTitle).setItems(new String[]{"打开 / 预览","保存到文件"},(d,i)->{if(i==0)preview();else save();}).show();});
-            }catch(Exception e){toast("PDF 暂时无法打开，归档仍保留在本机。");}
+            }catch(Exception e){toast("PDF 暂时无法打开，已归档的文件不受影响。");}
         });
     }
     private void preview(){try{Uri uri=FileProvider.getUriForFile(this,getPackageName()+".files",exportFile);startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(uri,"application/pdf").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));}catch(ActivityNotFoundException e){toast("未找到 PDF 阅读器，可以保存到文件后打开。");save();}}
