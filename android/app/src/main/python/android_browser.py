@@ -25,7 +25,7 @@ class Locator:
     def first(self):return self
     def expression(self):
         if self.selector:return 'document.querySelector('+json.dumps(self.selector)+')'
-        return 'Array.from(document.querySelectorAll("a,button,[role=link],[role=tab]")).find(e=>(e.innerText||e.getAttribute("aria-label")||"").trim()==='+json.dumps(self.name)+')'
+        return 'Array.from(document.querySelectorAll("a,button,[role=link],[role=tab]")).find(e=>(e.innerText||e.getAttribute("aria-label")||"").replace(/\\s+/g," ").trim()==='+json.dumps(self.name)+')'
     def is_visible(self):return self.page.evaluate('(()=>{const e='+self.expression()+';return !!e&&!!(e.offsetWidth||e.offsetHeight||e.getClientRects().length)})()')
     def click(self,timeout=10000,no_wait_after=False):
         deadline=time.monotonic()+timeout/1000
