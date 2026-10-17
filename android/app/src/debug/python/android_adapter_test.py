@@ -22,6 +22,7 @@ def check():
     from campo_backend.campo_documents import discover
     rows=discover(page,'Synthetic')
     assert len(rows)==1 and rows[0]['category']=='enrolment'
+    assert page.evaluate('innerWidth')>=1000
     return 'passed'
 
 _stage=None

@@ -32,7 +32,8 @@ public class MainActivity extends ComponentActivity {
         FrameLayout root=new FrameLayout(this);root.setBackgroundColor(Color.rgb(16,19,21));setContentView(root);
         ViewCompat.setOnApplyWindowInsetsListener(root,(v,insets)->{Insets b=insets.getInsets(WindowInsetsCompat.Type.systemBars()|WindowInsetsCompat.Type.ime());v.setPadding(b.left,b.top,b.right,b.bottom);return insets;});
         if(app.browser.view.getParent() instanceof ViewGroup)((ViewGroup)app.browser.view.getParent()).removeView(app.browser.view);
-        root.addView(app.browser.view,new FrameLayout.LayoutParams(1024,900));app.browser.view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);app.browser.view.setAlpha(0f);
+        float density=getResources().getDisplayMetrics().density;
+        root.addView(app.browser.view,new FrameLayout.LayoutParams((int)(1280*density),(int)(900*density)));app.browser.view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);app.browser.view.setAlpha(0f);
         web=new WebView(this);web.setBackgroundColor(Color.rgb(16,19,21));root.addView(web,new FrameLayout.LayoutParams(-1,-1));
         WebSettings settings=web.getSettings();settings.setJavaScriptEnabled(true);settings.setDomStorageEnabled(true);settings.setAllowFileAccess(false);settings.setAllowContentAccess(false);settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);settings.setSupportZoom(false);
         CookieManager.getInstance().setAcceptThirdPartyCookies(web,false);
