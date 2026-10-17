@@ -4,8 +4,13 @@ def check():
     class Context:
         def cookies(self,url):return []
     page=Page(Context())
-    state=page.evaluate(scripts.STATE)
-    assert state['logged_in'] and state['identity']=='Synthetic'
+    import time
+    deadline=time.monotonic()+15
+    while True:
+        state=page.evaluate(scripts.STATE)
+        if state['logged_in'] and state['identity']=='Synthetic':break
+        if time.monotonic()>deadline:raise AssertionError('Synthetic fixture not ready: '+repr(state))
+        time.sleep(.15)
     assert page.evaluate('typeof CampoMobile')=='undefined'
     assert page.locator('#click').is_visible()
     page.locator('#click').click()
