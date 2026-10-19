@@ -1,24 +1,25 @@
-# Extraction provenance
+# 代码结构与数据流
 
-Extracted from the current local Orange Pi BLOG Campo Reader module on 2026-10-15.
-The Orange Pi application is retained and not modified by this project.
+## 数据获取
 
-Copied business modules: campo.py, campo_courses.py, campo_documents.py,
-campo_workspace.py, campo_source/core.py, campo_source/scripts.py.
-The only engine portability change is replacing the hardcoded Linux Chromium
-path with the bundled Playwright browser launcher.
+`campo_backend/campo_source/` 负责登录状态识别和 Campo 页面解析。课表按日历数据解析，成绩、报名课程、Study Planner 及 Documents 通过各自的只读采集流程获取。
 
-The HTML/JS/CSS are retained with the same workspace, calendar, grade,
-course-management, progress, and document features. Device-console/navigation
-links are replaced with the local data-folder action. The device console error
-type is retained as a standalone exception class; no SSH, Codex, or device-control
-modules are included.
+`campo_backend/campo.py` 负责账号、同步任务、持久化和接口所需的数据快照。业务模块处理课程关联、分类、学分统计和证明文件管理。课程关联与学分匹配使用确定性规则，不依赖 AI。
 
-No live database, credential, token, certificate, browser storage, PDF, personal
-classification or account record is copied into this repository or package.
+同步结果按项目合并到最新快照，保留其他项目及个人设置。每次成功提交更新数据版本，前端只在结果变化或任务结束时获取完整快照；运行中的任务使用轻量状态查询。
 
-Unified repository (2026-10-16): the original campo-reader history is retained
-through a two-parent merge, alongside the Windows history. The former original
-repository is archived as vMarkEvanv/campo-reader-legacy; the active unified
-repository is vMarkEvanv/campo-reader. web.py and desktop.py use the same
-campo_backend and public resources. No BLOG application modules were imported.
+## 界面与平台入口
+
+- `public/` 提供共用的 HTML、CSS 和 JavaScript 界面。
+- `server.py` 提供账号、同步、课程、学分和文件等 HTTP API。
+- `web.py` 启动单人网页版服务。
+- `desktop.py` 与 `desktop_updates.py` 提供 Windows 窗口和更新操作。
+- Android 使用 WebView 显示共用界面，Chaquopy 运行 Python，通过适配层执行 Campo 页面操作。
+
+Windows 使用 Playwright/Chromium 读取学校页面。Android 使用独立 WebView，应用原生接口不暴露给学校页面。
+
+## 数据与发布
+
+账号、会话、分类及 PDF 由各平台分别管理。凭证加密后保存，安装包不携带用户数据。平台间复用代码不代表自动同步数据。
+
+GitHub Actions 运行后端、界面和平台测试，生成发布附件。Windows 和 Android 使用独立版本及更新包，更新来源均为 GitHub Releases。

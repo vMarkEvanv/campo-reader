@@ -1,21 +1,47 @@
-# Campo Reader — 网页版与 Windows 版
+# Campo Reader
 
-独立的 FAU Campo 工具，统一维护网页版和 Windows 桌面版。只包含课表、成绩、课程管理、学分进度和证明文件等 Campo Reader 功能，不包含博客、导航台、AI 对话、SSH 或设备控制台。
+FAU Campo 的课表、成绩和课程管理工具，提供网页版、Windows 桌面版和 Android 应用。
 
-## 共享架构
+## 功能
 
-- `campo_backend/`：两端共用的获取、解析、缓存和课程/证明业务逻辑。
-- `public/`：两端共用的 HTML、CSS、JavaScript 界面。
-- `server.py`：共享 HTTP API 与 Windows 本机访问控制。
-- `web.py`：独立网页入口，使用共享 API，隐藏桌面操作。
-- `desktop.py`、`desktop_updates.py`：Windows 窗口、原生下载和更新。
-- `packaging/`、`.github/workflows/`：安装包、发布及两端检查。
+- 查看课表、搜索课程、切换日期和周次。
+- 同步成绩与各学期已报名课程，关联已通过的模块。
+- 按学期、分类和学习类型管理课程，设置考试计划及练习课类型。
+- 从 Study Planner 获取学分，支持手动调整和两位小数。
+- 统计已获得及计划修读的学分，管理个人分组与目标。
+- 从 Documents 获取证明，支持 PDF 导入、预览、下载、归档及回收。
+- 设置同步间隔，按需记住账号密码；同步时显示处理阶段。
 
-网页版和桌面版独立运行、独立保存数据；合并代码不代表自动同步个人数据。两份仓库原有的提交历史已通过合并保留，旧 PyQt 客户端可从早期提交查看，当前使用同一套网页界面与核心逻辑。
+各平台独立保存账号和数据，不会自动在设备之间同步。此项目并非 FAU 官方应用。
 
-## 独立网页版
+## 下载与使用
 
-Python 3.10+，推荐 Python 3.12：
+[查看发布版本](https://github.com/vMarkEvanv/campo-reader/releases)
+
+### Windows
+
+支持 Windows 10/11 x64。
+
+1. 下载并运行 `CampoReader-Setup-Windows-x64.exe`，安装后打开 Campo Reader。
+2. 也可下载 `CampoReader-Portable-Windows-x64.zip`，完整解压后运行 `CampoReader.exe`。
+3. 添加账号，点击“登录并同步”，使用学校账号登录。
+4. 在课程管理中分类课程、设置修读类型与学分，在学业进度中查看统计。
+
+无需安装 Python。应用菜单提供软件更新、重新加载、数据文件夹和退出操作。若出现闪烁或黑屏，可尝试开始菜单中的 compatible rendering 入口。
+
+### Android
+
+支持 Android 8.0 及以上，提供 arm64-v8a 和 x86_64 架构。
+
+1. 在 Android 发布版本中下载 `CampoReader-Android-<版本>.apk`，按系统提示安装。
+2. 添加账号并登录同步，通过底部标签查看课表、课程、成绩、学业进度和证明文件。
+3. 课表支持按天浏览；PDF 可通过系统文件选择器导入、预览或保存。
+
+应用在手机上运行并连接 FAU。自动同步仅在应用前台运行时进行。Android 的构建与实现说明见 [Android 文档](https://github.com/vMarkEvanv/campo-reader/blob/android/first-preview/android/README.md)。
+
+### 网页版
+
+需要 Python 3.10 或以上，推荐 Python 3.12。在项目目录执行：
 
 ```bash
 python -m venv .venv
@@ -24,85 +50,47 @@ python -m venv .venv
 .venv/bin/python web.py
 ```
 
-打开 `http://127.0.0.1:8090/`。Linux 也可使用已有的 `/usr/bin/chromium-browser`。无需安装 Qt，也无需部署 BLOG。默认数据位于 `~/.local/share/campo-reader-web`，可通过 `--data-dir` 指定；不要使用正在被另一个 Campo 进程写入的目录。
+浏览器打开 `http://127.0.0.1:8090/`，添加账号后登录并同步。
 
-这是单人私有网页服务，沿用个人设备内直接进入的使用方式，**没有多用户登录或公开访问控制**。默认仅监听本机。远程使用时放在 Tailscale/可信私有网络和 HTTPS 反向代理后面，并用 `--allowed-host your-private-host:port` 允许精确的代理 Host。不要直接暴露到公网。写入接口仍验证 Host、Origin、CSRF；不提供设备控制接口。
+默认数据目录为 `~/.local/share/campo-reader-web`，可通过 `--data-dir` 修改。服务默认只监听本机，适用于单人使用，没有多用户登录机制。需要远程访问时，应配置访问控制和 HTTPS 反向代理，并通过 `--allowed-host` 指定允许的代理 Host。
 
-现有 Orange Pi 集成网页继续运行；本次仓库整理不会替换其服务或搬动账号、会话和文档。
+## 同步、数据与更新
 
-## Windows 桌面版
+- 同步成功的项目会先显示，其他项目继续处理；后续项目失败时保留已更新的数据。
+- Study Planner 的自动学分以可靠匹配为准，未知或冲突项保留待确认状态；手动设置的学分优先。
+- 账号密码默认不保存；勾选记住后，仅在成功同步后加密保存。也可更换或清除已保存的凭证。
+- 应用关闭后暂停自动同步；已获取的数据可离线查看。
+- Windows 数据目录为 `%LOCALAPPDATA%\CampoReader`，升级及默认卸载操作保留数据。Android 卸载或清除应用数据会删除账号、缓存和密钥。
+- Windows 和 Android 均从 GitHub Releases 检查更新，使用各自的安装包。发现新版后可选择稍后更新，下载与安装需要用户确认；覆盖安装保留现有数据。
 
-从 Orange Pi 网页版提取，保留同一套界面和业务逻辑。只包含 Campo Reader，不依赖博客、导航台、SSH 或设备控制台。
+## 实现方式
 
-## 使用
+网页、Windows 和 Android 复用 HTML/CSS/JavaScript 界面及 Python 业务逻辑，通过 HTTP API 交换数据。
 
-推荐运行 `CampoReader-Setup-Windows-x64.exe`，安装完成后双击桌面图标。
-也可解压 `CampoReader-Portable-Windows-x64.zip`，双击其中的 `CampoReader.exe`；请保留整个文件夹。
+| 部分 | 实现 |
+| --- | --- |
+| 数据引擎 | `campo_backend/`：获取与解析课表、成绩、报名课程、Study Planner 和 Documents，管理缓存及个人设置 |
+| 共享界面 | `public/`：课表、课程管理、学业进度、证明文件及设置界面 |
+| HTTP API | `server.py`：共享接口、会话与 CSRF 校验 |
+| 网页入口 | `web.py`：浏览器访问与服务启动参数 |
+| Windows | `desktop.py`、`desktop_updates.py`：pywebview/WebView2 窗口、原生文件操作与软件更新；Playwright/Chromium 负责读取 Campo |
+| Android | Java、Android WebView 与 Chaquopy：在应用内运行 Python，并适配浏览器操作、文件导入导出和安装更新 |
+| 构建与发布 | `packaging/`、GitHub Actions：生成安装包、运行测试并发布附件 |
 
-- Windows 10/11 x64，不需要安装 Python，不需要命令行。内置桌面渲染引擎与 FAU 同步浏览器，首次启动不用下载运行组件。
-- 首次添加账号并登录 FAU。Windows 与 Orange Pi 各自保存数据；安装包不包含任何服务器账号、密码、会话、分类或 PDF。
-- 支持课表/成绩、全学期课程报名、分类/学习类型筛选、无需AI的模块关联、学分进度、个人计划和 Documents 获取/归档/导入/回收/下载。
-- 自动更新在桌面程序运行期间有效；关闭程序后停止。重开程序继续使用本机缓存与有效会话。
-- 设置和文件保存在 `%LOCALAPPDATA%\CampoReader`，可以从应用菜单或侧栏打开。升级和卸载默认保留该目录。
-- 本地服务只监听 `127.0.0.1` 随机端口，并使用每次启动随机会话与 CSRF 校验；不开放局域网端口，不需要安装 HTTPS 证书。
-- 外部官方网站链接用系统默认浏览器打开，PDF 下载使用原生保存窗口。
+Windows 使用加密凭证存储，Android 使用 AndroidKeyStore。桌面及手机应用的内部 API 仅监听本机，使用启动会话和 CSRF 校验；学校登录页面与应用界面分开处理。
 
-## 构建与验证
+Windows 更新清单使用 Ed25519 签名，安装包下载后校验 SHA-256 和大小。Android 更新校验 SHA-256、包名、版本号及应用签名，再调用系统安装器。
 
-共享代码每次推送运行 Linux 回归测试。修改 `version.py` 的版本号并推送 main，或手动运行 `.github/workflows/windows.yml`，即可构建 Windows 发布包。使用 `.github/workflows/windows.yml` 在 Windows 2022 / Python 3.12 构建。
-依赖固定于 requirements*.txt。PyInstaller 输出目录包，Inno Setup 生成当前用户安装包。
-构建执行业务与本地接口测试，并直接运行打包后的 EXE 验证本地 API、内置 Chromium 和 WebView2 页面、下拉菜单路径和网页更新弹窗加载。
+更多说明见 [代码结构与数据流](UPSTREAM.md)、[Windows 使用说明](packaging/USER_GUIDE.md)和[第三方组件声明](THIRD_PARTY_NOTICES.md)。
 
-安装包未进行商业代码签名；Windows 可能显示“未知发布者”。没有关停或绕过系统安全防护。
+## 开发与验证
 
-## 来源
+Python 依赖见 `requirements*.txt`。运行共享后端测试：
 
-当前网页版模块与原项目 https://github.com/vMarkEvanv/campo-reader-legacy 的核心解析代码。统一仓库已公开；构建与源码工作区独立于 Orange Pi 运行目录；不会替换正在运行的服务。
+```bash
+python -m unittest discover -s tests -q
+```
 
-## 软件更新（1.1 起）
+界面回归测试位于 `tests/ui_*.py`，需要 Playwright 和 Chromium。Windows 工作流构建 PyInstaller 应用与 Inno Setup 安装包，验证 WebView2 窗口及覆盖升级。Android 工作流使用 Java 17、Gradle、Android SDK 和 Chaquopy 构建 APK，并运行模拟器测试。
 
-侧栏“软件更新”或菜单“应用 → 软件更新”打开更新窗口。默认每天在启动时检查一次，可关闭；不会自动下载安装。发现新版本后可查看说明、下载、取消，确认后退出旧程序并安装，完成后重新启动。升级保留 `%LOCALAPPDATA%\CampoReader` 中的账号、分类、会话和 PDF。
-
-更新源为公开的 GitHub Releases。客户端直接检查最新版 `update.json`，按签名中的版本号下载固定发布包，处理 GitHub 官方 CDN 的 HTTPS 重定向，无需 GitHub 登录、令牌、Orange Pi 或 Tailscale。网络需能访问 GitHub 及其下载 CDN。
-
-发布清单沿用 Ed25519 签名；下载完成和安装前均验证 SHA-256/大小。签名私钥以 `UPDATE_SIGNING_KEY` GitHub Actions 加密 Secret 提供，仅在通过测试后的签名步骤使用，不进入源码、客户端或发布附件。发布先创建草稿，全部附件上传完成后才设为最新版。
-
-1.1 及更早版本内置旧服务器地址，需先从 GitHub Releases 手动覆盖安装一次 1.1.1；以后可在软件内升级。旧服务器上的镜像定时任务停用，不再托管更新包。免安装版使用同一安装程序覆盖当前程序目录，会登记为当前用户安装版；个人数据位置保持不变。
-
-### Study Planner 自动学分（网页审阅分支）
-
-课程管理可单独刷新 Study Planner 学分。常规自动同步每天检查一次目录，手动完整同步也会更新；读取失败保留旧目录。课程按名称匹配，保留讲课与习题课的区别，优先读取课程本身的 ECTS，不把父模块的总学分复制给各个子课程。无法可靠匹配或同名学分冲突时保持未知。
-
-手动填写的学分（包括 0）优先保留；“使用自动学分”可恢复自动来源。这些网页改动现已纳入 1.2.0 WebView2 测试包，稳定版仍为 1.1.1。
-
-### 网页同步提示与可选账号保存（审阅分支）
-
-数据更新期间，页头显示细线等待动画及实际处理阶段；不显示估算百分比。登录时可勾选“记住账号密码”，仅在完整同步成功后使用设备现有密钥加密保存。后续可直接使用保存的账号同步，也可更换或清除；密码不通过快照接口回传，也不写入浏览器存储。默认不保存密码，自动更新仍使用已有的加密会话。
-
-### 网页性能调整（审阅分支）
-
-移除变化中心及新增变化记录。同步进度使用独立的轻量状态查询，完成后才取完整数据；内部 Study Planner 目录不再随页面快照传输。课程名索引及模块列表在一次快照内复用。当天已检查的学分目录、Documents 和全学期报名不反复完整抓取，专用刷新按钮仍可强制获取；课表和成绩的更新频率保持原设置。
-
-前端静态文件支持 gzip 和 ETag，每次访问校验更新，内容没变则复用浏览器缓存。可运行 `python tests/ui_regression.py` 检查桌面/手机课程编辑、筛选、自动学分及各页面切换（需要 Playwright 和 Chromium）。
-
-### Windows 1.2.0 WebView2 测试版
-
-桌面外壳使用 pywebview 6.2.1，强制选用 Microsoft WebView2（edgechromium），不安装或打包 Qt/PySide。Python 后端、网页界面和本地数据路径继续复用。更新弹窗改为网页实现，通过受同源、会话 Cookie 和 CSRF 保护的本机接口调用现有签名更新逻辑，不暴露任意 Python 执行接口。
-
-安装包检查 WebView2 Runtime，缺少时运行附带的微软安装程序（构建时校验微软数字签名），首次安装可能需要联网。免安装包也附带此安装程序。开始菜单的 compatible rendering 入口或启动参数 `--software-rendering` 可临时关闭 GPU 加速，不修改用户数据。
-
-构建工作流默认发布为 GitHub 预发布版本，保持稳定更新源不变；Windows 实际包检查与旧版覆盖升级检查通过后才发布。用户验证测试版后，可将该版本提升为稳定版本。普通开发机器可运行 `python -m unittest discover -s tests -v`；真正的 WebView2 窗口测试必须在 Windows 执行。
-
-### Windows 1.2.1
-
-移除原生白色应用菜单栏，左下角“应用”按钮展开与页面统一的深色菜单，保留软件更新、重新加载（Ctrl+R）、数据目录、关于及退出功能。此版本发布到稳定更新源，1.2.0 可从软件内更新；构建检查实际 WebView2 窗口无原生菜单，并测试 1.2.0 覆盖升级与数据保留。
-
-### Windows 1.2.2：界面文案与滚动条
-
-桌面常规界面移除部署环境、渲染引擎及更新服务实现说明；保留必要的账号保存和数据保留提示。安装包和免安装包附带普通使用指南，仓库部署文档不随软件分发。页面、侧栏、表格和弹窗采用 6px 圆角滚动条，透明轨道与深色背景一致，悬停/拖动时加深；高对比模式使用系统颜色。长列表中展开应用菜单不会因焦点滚动而自动收起。
-
-`python tests/ui_desktop.py` 可检查长列表菜单、关于/更新文案和滚动条；需要 Playwright 和 Chromium。1.2.2 发布到稳定更新源，构建检查 1.2.1 覆盖升级及数据保留。
-
-## Android 本地版
-
-Android 应用源码位于 [`android/`](android/README.md)，复用此仓库的界面和 Python 核心，在手机本地运行并直接连接 FAU，不依赖个人服务器。Android APK 使用独立预发行和签名，不影响现有 Windows 更新源。
+各平台的版本号、构建入口和发布附件分别管理；修改源码不会自动更新已安装的软件。
