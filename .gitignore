@@ -25,3 +25,12 @@ release-final/
 
 packaging/MicrosoftEdgeWebview2Setup.exe
 packaging/campo.ico
+
+# Android
+android/.gradle/
+android/**/build/
+android/local.properties
+*.jks
+*.keystore
+*.apk
+*.aab
