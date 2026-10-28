@@ -49,6 +49,23 @@ public class LocalAppTest {
         String encrypted=app.seal("synthetic-local-value");assertFalse(encrypted.contains("synthetic-local-value"));assertEquals("synthetic-local-value",app.unseal(encrypted));
         try{app.unseal(encrypted.substring(0,encrypted.length()-5)+"AAAAA");fail("Tampered ciphertext accepted");}catch(Exception expected){}
     }
+    @Test public void manualTimetableOnDevice()throws Exception{
+        js("document.getElementById('add').click();document.getElementById('label').value='Manual lesson test';document.querySelector('#add-form .primary').click()");
+        waitJs("document.getElementById('accounts').selectedOptions[0].textContent",JSONObject.quote("Manual lesson test"));
+        String accountId=js("document.getElementById('accounts').value");
+        js("document.getElementById('lesson-add').click();document.getElementById('lesson-title').value='On-device weekly lesson';document.getElementById('lesson-date').value='2026-11-02';document.getElementById('lesson-repeat').value='weekly';document.getElementById('lesson-repeat').dispatchEvent(new Event('change'));document.getElementById('lesson-until').value='2026-11-16';document.querySelectorAll('#lesson-weekdays input').forEach(e=>e.checked=e.value==='0');document.getElementById('lesson-save').click()");
+        waitJs("document.getElementById('lesson-dialog').open","false");
+        waitJs("document.querySelectorAll('.manual-course').length","1");
+        assertEquals("true",js("!!document.querySelector('.mobile-day-active .manual-course')"));
+        activity.onActivity(a->a.getAppWebView().reload());
+        waitJs("Array.from(document.getElementById('accounts').options).some(o=>o.value==="+accountId+")","true");
+        js("document.getElementById('accounts').value="+accountId+";document.getElementById('accounts').dispatchEvent(new Event('change'))");
+        waitJs("document.getElementById('lesson-manage').disabled","false");
+        waitJs("(()=>{const d=document.getElementById('lesson-manager');if(d.open)d.close();document.getElementById('lesson-manage').click();return document.getElementById('lesson-list').textContent.includes('On-device weekly lesson')})()","true");
+        assertEquals("1",js("document.querySelectorAll('.lesson-item').length"));
+        assertEquals("true",js("document.getElementById('lesson-list').textContent.includes('On-device weekly lesson')"));
+        assertEquals("true",js("document.documentElement.scrollWidth<=innerWidth"));
+    }
     @Test public void timetableRefreshesBeforeSyncFinishes()throws Exception{
         com.chaquo.python.PyObject helper=Python.getInstance().getModule("android_adapter_test");
         String account=helper.callAttr("begin_stage_test").toString();

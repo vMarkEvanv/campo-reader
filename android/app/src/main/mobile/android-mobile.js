@@ -23,6 +23,7 @@
   show();
  }
  function show(){Array.from(week.children).forEach((el,i)=>el.classList.toggle('mobile-day-active',i===Number(activeDay)));Array.from(days.children).forEach((b,i)=>b.setAttribute('aria-pressed',String(i===Number(activeDay))));}
+ document.addEventListener('campo-calendar-focus',e=>{const index=Array.from(week.children).findIndex(c=>c.dataset.date===e.detail.date);if(index>=0){activeDay=String(index);show();}});
  new MutationObserver(dayMode).observe(week,{childList:true});dayMode();
  window.addEventListener('pagehide',()=>{});
 })();

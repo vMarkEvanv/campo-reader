@@ -224,7 +224,7 @@ class Campo:
                     store.read(account)
                     if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh','planner-refresh','credentials-forget'):
                         raise ConsoleError('正在同步，请等待完成后再操作。', 409)
-                    if action in ('courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
+                    if action in ('lesson-save','lesson-delete','courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
                         workspace.mutate(store, account, payload)
                     elif action == 'settings':
                         minutes, enabled = payload.get('interval_minutes'), payload.get('enabled')

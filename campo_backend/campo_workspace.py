@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime, time, timedelta
 from urllib.parse import urlsplit
 from .console import ConsoleError
+from . import campo_manual_calendar as manual_calendar
 from .campo_source.core import BERLIN, DataError
 
 MAX_PDF = 10 * 1024 * 1024
@@ -84,6 +85,7 @@ def plan(store,account):
     row=store.db.execute('SELECT payload FROM workspace WHERE account_id=?',(account,)).fetchone()
     state=json.loads(row[0]) if row else {'revision':0,'groups':[],'assignments':{},'planned':[],'exams':[]}
     state.setdefault('course_choices',{})
+    state.setdefault('manual_lessons',[])
     return state
 
 def module_list(data):
@@ -263,7 +265,7 @@ def snapshot(store,account,data):
     courses=course_list(data,state,modules)
     statistics=progress_statistics(data,state,courses,modules)
     documents=store.db.execute('SELECT id,title,term,category,language,source,length(content),created,deleted FROM documents WHERE account_id=? ORDER BY created DESC',(account,)).fetchall()
-    return dict(state,effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,
+    return dict(state,manual_events=manual_calendar.events(state['manual_lessons']),effective_assignments=effective_assignments(data,state,courses),courses_view=courses,progress_stats=statistics,
         documents=[dict(zip(('id','title','term','category','language','source','size','created','deleted'),row)) for row in documents],
         modules=modules,exams_view=exam_list(data,state['exams']),
         official_summaries=[g for g in data.get('grades',[]) if g.get('kind')=='program'])
@@ -337,7 +339,9 @@ def mutate(store,account,payload):
         return
     current=plan(store,account)
     if payload.get('revision')!=current['revision']:raise ConsoleError('其他页面已修改，请刷新后重试。',409)
-    if action=='course-save':
+    if action in ('lesson-save','lesson-delete'):
+        manual_calendar.mutate(current,payload)
+    elif action=='course-save':
         data=store.read(account)
         key=string(payload.get('course_id'),64,True)
         source=next((c for c in course_list(data,current) if c['id']==key),None)

@@ -39,6 +39,8 @@ jobs:
           if ($process.ExitCode -notin @(0,3010)) { Write-Host "WebView2 bootstrapper returned $($process.ExitCode); installed runtime will be checked by executable self-test" }
       - name: Run Windows regression tests
         run: python -m unittest discover -s tests -v
+      - name: Verify shared manual timetable UI
+        run: python tests/ui_manual_calendar.py
       - name: Build application icon and bundle
         run: |
           python packaging/make_icon.py
