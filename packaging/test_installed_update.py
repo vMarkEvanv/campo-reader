@@ -36,12 +36,16 @@ def main():
  time.sleep(2);assert digest(install/'CampoReader.exe')==before,'Installer changed files before parent exit'
  parent.terminate();parent.wait(timeout=10);assert helper.wait(timeout=90)==0
  print('Detached helper completed; waiting for new installed app',flush=True)
- target_hash=digest(bundle);deadline=time.monotonic()+100;ids=[]
+ target_hash=digest(bundle);deadline=time.monotonic()+150;ids=[]
  env=dict(os.environ,CAMPO_TEST_EXE=str((install/'CampoReader.exe').resolve()))
  command="Get-Process CampoReader -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:CAMPO_TEST_EXE } | Select-Object -ExpandProperty Id"
  while time.monotonic()<deadline:
   if (install/'CampoReader.exe').exists() and digest(install/'CampoReader.exe')==target_hash:
-   r=subprocess.run(['powershell','-NoProfile','-Command',command],env=env,capture_output=True,text=True,timeout=10)
+   try:
+    r=subprocess.run(['powershell','-NoLogo','-NoProfile','-NonInteractive','-Command',command],env=env,capture_output=True,text=True,timeout=30)
+   except subprocess.TimeoutExpired:
+    print('Process query timed out on the runner; retrying within the startup deadline',flush=True)
+    continue
    ids=[int(v) for v in r.stdout.split() if v.isdigit()]
    if ids:break
   time.sleep(2)

@@ -57,7 +57,10 @@ public class LocalAppTest {
         waitJs("document.getElementById('lesson-dialog').open","false");
         waitJs("document.querySelectorAll('.manual-course').length","1");
         assertEquals("true",js("!!document.querySelector('.mobile-day-active .manual-course')"));
+        js("window.manualBeforeReload=true");
         activity.onActivity(a->a.getAppWebView().reload());
+        waitJs("window.manualBeforeReload!==true","true");
+        waitJs("!!document.getElementById('android-about')","true");
         waitJs("Array.from(document.getElementById('accounts').options).some(o=>o.value==="+accountId+")","true");
         js("document.getElementById('accounts').value="+accountId+";document.getElementById('accounts').dispatchEvent(new Event('change'))");
         waitJs("document.getElementById('lesson-manage').disabled","false");
