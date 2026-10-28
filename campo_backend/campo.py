@@ -1,11 +1,11 @@
-"""Web adapter for vMarkEvanv/campo-reader. No passwords persisted; encrypted FAU session supports scheduled timetable and grade refresh."""
+"""Web adapter for vMarkEvanv/campo-reader. Opt-in encrypted credentials and FAU session supports scheduled timetable and grade refresh."""
 import hashlib
 import getpass
 import secrets
 import json
 import re
 import os
-from cryptography.fernet import Fernet, InvalidToken
+from .credential_cipher import make_cipher, InvalidToken
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -19,6 +19,7 @@ from .campo_source import scripts
 from . import campo_workspace as workspace
 from . import campo_documents
 from . import campo_courses
+from . import campo_planner
 from .browser import launch_browser
 
 class SessionExpired(DataError):
@@ -28,15 +29,7 @@ class Campo:
     def __init__(self, root):
         self.root = Path(root) / 'data/campo'
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        key_path = self.root / 'calendar.key'
-        if not key_path.exists():
-            try:
-                fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-                with os.fdopen(fd, 'wb') as stream: stream.write(Fernet.generate_key())
-            except FileExistsError:
-                pass
-        key_path.chmod(0o600)
-        self.cipher = Fernet(key_path.read_bytes())
+        self.cipher = make_cipher(self.root)
         self.public_user = getpass.getuser()
         self.csrf = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
@@ -64,6 +57,13 @@ class Campo:
         with store.db:
             store.db.execute('INSERT OR REPLACE INTO web_settings VALUES (?,?)', (account, json.dumps(value)))
 
+    def remembered_credentials(self, settings):
+        try:
+            value=json.loads(self.cipher.decrypt(settings.get('credentials','').encode()).decode())
+            if not isinstance(value.get('username'),str) or not value['username'] or not isinstance(value.get('password'),str) or not value['password']:return None
+            return value
+        except (InvalidToken,ValueError,TypeError,AttributeError):return None
+
     def settings_public(self, store, account, payload):
         settings = self.preferences(store, account)
         next_at = None
@@ -72,6 +72,7 @@ class Campo:
             next_at = max(time.time(), settings['last_attempt'] + settings['interval_minutes']*60)
         return {'enabled': settings['enabled'], 'interval_minutes': settings['interval_minutes'],
                 'ready': ready, 'next_update_at': next_at,
+                'credentials_saved': bool(self.remembered_credentials(settings)),
                 'calendar_ready': bool(settings['subscription']),
                 'grades_ready': bool(settings['session'] and not settings['reauth_required']),
                 'reauth_required': settings['reauth_required'],
@@ -153,8 +154,8 @@ class Campo:
             page.wait_for_timeout(200)
         raise DataError('成绩读取超时或表格列不匹配，旧数据已保留。')
 
-    def commit_sync(self, user, account, result, subscription, session, documents=()):
-        # Cache and encrypted session commit together; a failed write preserves both.
+    def commit_sync(self, user, account, result, subscription, session, documents=(), credentials=None):
+        # Commit one verified stage atomically, preserving every other stage.
         with self.lock:
             store = self.store(user)
             try:
@@ -162,32 +163,35 @@ class Campo:
                 if not result.get('identity') or not result.get('fingerprint') or (previous.get('fingerprint') and previous['fingerprint'] != result['fingerprint']):
                     raise DataError('当前 FAU 身份与本地账号不一致，旧数据已保留。')
                 settings = self.preferences(store, account)
-                settings.update(subscription=subscription, session=session, reauth_required=False, last_attempt=time.time())
-                for field in ('courses','courses_sync'):
-                    if field not in result and field in previous:result[field]=previous[field]
-                if 'documents_sync' not in result and previous.get('documents_sync'):
-                    result['documents_sync'] = previous['documents_sync']
+                if subscription is not None: settings['subscription'] = subscription
+                if session is not None: settings.update(session=session, reauth_required=False, last_attempt=time.time())
+                if credentials is not None:settings['credentials']=credentials
+                result = dict(previous, **result)
+                result['sync_revision'] = secrets.token_hex(12)
                 with store.db:
-                    workspace.record_changes(store, account, previous, result)
                     for document in documents:
                         try: workspace.add_document(store, account, document['content'], document['title'], result.get('semester',''), document.get('category','other'), source='campo')
                         except ConsoleError:
                             result['documents_sync'] = {'checked_at':workspace.stamp(), 'message':'证明文件夹已满或文件不符合要求；原文件保留。'}
                     store.db.execute('UPDATE accounts SET payload=? WHERE id=?', (store._encode(result), account))
                     store.db.execute('INSERT OR REPLACE INTO web_settings VALUES (?,?)', (account,json.dumps(settings)))
+                if (user,account) in self.jobs:
+                    self.jobs[(user,account)]['data_revision'] = result['sync_revision']
             finally: store.close()
 
-    def snapshot(self, user, account=None):
+    def snapshot(self, user, account=None, lightweight=False):
         with self.lock:
             store = self.store(user)
             try:
                 accounts = [{'id': key, 'label': label} for key, label in store.list_accounts()]
                 if account and not any(x['id'] == account for x in accounts):
                     raise ConsoleError('账号不存在。', 404)
+                if lightweight:return {'account':account,'job':dict(self.jobs.get((user,account),{}))}
                 payload = store.read(account) if account else {}
                 # Internal identity binding is never exposed as an API token.
                 extra = workspace.snapshot(store, account, payload) if account else None
                 payload.pop('fingerprint', None)
+                payload.pop('study_planner', None)  # Internal catalog; UI uses resolved course credits.
                 return {'accounts': accounts, 'account': account, 'data': payload, 'workspace': extra,
                         'job': dict(self.jobs.get((user, account), {})),
                         'settings': self.settings_public(store, account, payload) if account else None}
@@ -218,9 +222,9 @@ class Campo:
                     account = store.add(label)
                 else:
                     store.read(account)
-                    if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh'):
+                    if self.jobs.get((user, account), {}).get('running') and action in ('settings','delete','sync','refresh','documents-refresh','document-fetch','courses-refresh','planner-refresh','credentials-forget'):
                         raise ConsoleError('正在同步，请等待完成后再操作。', 409)
-                    if action in ('changes-read','courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
+                    if action in ('courses-batch','course-save','plan-save','exam-save','exam-delete','document-upload','document-trash','document-restore','document-edit'):
                         workspace.mutate(store, account, payload)
                     elif action == 'settings':
                         minutes, enabled = payload.get('interval_minutes'), payload.get('enabled')
@@ -237,6 +241,15 @@ class Campo:
                                 store.db.execute('DELETE FROM '+table+' WHERE account_id=?', (account,))
                         self.jobs.pop((user, account), None)
                         account = None
+                    elif action == 'planner-refresh':
+                        self.restore_session(self.preferences(store,account))
+                        if not self.slots.acquire(blocking=False):raise ConsoleError('已有同步任务运行。',409)
+                        self.jobs[(user,account)]={'running':True,'message':'正在读取 Study Planner 课程学分…'}
+                        try:threading.Thread(target=self.sync_planner,args=(user,account),daemon=True).start()
+                        except Exception:
+                            self.jobs[(user,account)]['running']=False
+                            self.slots.release()
+                            raise
                     elif action == 'courses-refresh':
                         self.restore_session(self.preferences(store, account))
                         if not self.slots.acquire(blocking=False):raise ConsoleError('已有同步任务运行。',409)
@@ -267,15 +280,31 @@ class Campo:
                             self.jobs[(user, account)]['running']=False
                             self.slots.release()
                             raise
+                    elif action == 'credentials-forget':
+                        settings=self.preferences(store,account);settings.pop('credentials',None)
+                        self.save_preferences(store,account,settings)
                     elif action == 'sync':
+                        remember=payload.get('remember_credentials',False)
+                        use_saved=payload.get('use_saved_credentials',False)
+                        if type(remember) is not bool or type(use_saved) is not bool:raise ConsoleError('账号保存选项不正确。')
                         username, password = payload.get('username'), payload.pop('password', None)
+                        credentials=None
+                        if use_saved:
+                            saved=self.remembered_credentials(self.preferences(store,account))
+                            if not saved:raise ConsoleError('没有可用的已保存账号，请重新输入。')
+                            username,password=saved['username'],saved['password']
+                        else:
+                            credentials=''  # Unchecked means forget after successful sync.
+
                         if not isinstance(username, str) or not 0 < len(username.strip()) <= 128 or not isinstance(password, str) or not 0 < len(password) <= 1024:
                             raise ConsoleError('请输入 FAU 用户名和密码。')
                         if not self.slots.acquire(blocking=False):
                             raise ConsoleError('已有同步任务运行，请稍后重试。', 409)
+                        if not use_saved and remember:
+                            credentials=self.cipher.encrypt(json.dumps({'username':username.strip(),'password':password}).encode()).decode()
                         self.jobs[(user, account)] = {'running': True, 'message': '正在连接 Campo…'}
                         try:
-                            threading.Thread(target=self.sync, args=(user, account, username.strip(), password), daemon=True).start()
+                            threading.Thread(target=self.sync, args=(user, account, username.strip(), password, credentials), daemon=True).start()
                         except Exception:
                             self.jobs[(user, account)]['running'] = False
                             self.slots.release()
@@ -300,7 +329,7 @@ class Campo:
         with self.lock:
             self.jobs[(user, account)].update(message=message)
 
-    def sync(self, user, account, username, password):
+    def sync(self, user, account, username, password, credentials=None):
         browser = None
         start_time = time.monotonic()
         automatic = username is None
@@ -311,12 +340,13 @@ class Campo:
                     store = self.store(user)
                     try: storage_state = self.restore_session(self.preferences(store, account))
                     finally: store.close()
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with sync_playwright() as pw:
                 browser = launch_browser(pw)
                 context = browser.new_context(storage_state=storage_state) if storage_state is not None else browser.new_context()
                 # Only official FAU HTTPS origins may receive requests or credentials.
                 def guard(route):
+                    if route.request.resource_type in ('image','font','media'):route.abort();return
                     p = urlsplit(route.request.url)
                     if p.scheme == 'https' and (p.hostname == 'fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):
                         route.continue_()
@@ -363,50 +393,109 @@ class Campo:
                     finally: store.close()
                 if previous.get('fingerprint') and previous['fingerprint'] != fingerprint:
                     raise DataError('此 FAU 身份与本地账号不一致，请另建账号。')
-                self.progress(user, account, '正在并行读取课表与成绩…')
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    calendar = pool.submit(self.calendar, url)
-                    subscription = self.cipher.encrypt(url.encode()).decode()
-                    url = ''
-                    page.goto(TRANSCRIPT, wait_until='domcontentloaded')
-                    grades = self.read_grades(page)
-                    state = page.evaluate(scripts.STATE)
-                    if not state.get('logged_in'): raise SessionExpired('FAU 登录已过期，请重新登录并同步。')
-                    if state.get('identity') != identity: raise DataError('登录身份发生变化，已停止保存。')
-                    timestamp = datetime.now(BERLIN).isoformat()
-                    result = dict(calendar.result(), grades=grades, identity=identity, fingerprint=fingerprint, semester=semester,
-                        synced_at=timestamp, calendar_updated_at=timestamp, grades_updated_at=timestamp, sync_seconds=round(time.monotonic()-start_time,2))
+                binding = dict(identity=identity, fingerprint=fingerprint, semester=semester)
+                subscription = self.cipher.encrypt(url.encode()).decode()
+                saved_session = self.cipher.encrypt(json.dumps(context.storage_state()).encode()).decode()
+                # Bind this verified identity before parallel stages; all later writes merge
+                # against the latest committed payload rather than an old snapshot.
+                initial = dict(binding, calendar_updated_at=previous.get('calendar_updated_at',previous.get('synced_at')), grades_updated_at=previous.get('grades_updated_at',previous.get('synced_at')))
+                self.commit_sync(user, account, initial, subscription, saved_session, credentials=credentials)
+                completed, failed = [], []
+                expired = False
+
+                def verified_session():
+                    current = page.evaluate(scripts.STATE)
+                    if not current or not current.get('logged_in'):
+                        raise SessionExpired('FAU 登录已过期，请重新登录后重试。')
+                    if current.get('identity') != identity:
+                        raise DataError('登录身份发生变化，已停止该项更新。')
+                    return self.cipher.encrypt(json.dumps(context.storage_state()).encode()).decode()
+
+                def publish(fields, name, session=None, documents=()):
+                    now = datetime.now(BERLIN).isoformat()
+                    self.commit_sync(user, account, dict(binding, synced_at=now, **fields), None, session, documents)
+                    with self.lock:
+                        completed.append(name)
+                        self.jobs[(user,account)]['completed'] = list(completed)
+
+                def fetch_calendar(calendar_url):
                     try:
-                        old_info=previous.get('courses_sync',{})
-                        history=old_info.get('history_checked_at') or (old_info.get('checked_at','') if old_info.get('scope')=='all' else '')
-                        recent=history[:10]==timestamp[:10]
-                        rows,info=campo_courses.collect(page,identity,semester,current_only=automatic and recent)
-                        if info.get('scope')=='current':
-                            terms={campo_courses.term_key(t) for t in info['semesters']}
-                            rows=[r for r in previous.get('courses',[]) if campo_courses.term_key(r.get('semester','')) not in terms]+rows
-                            info['history_checked_at']=history
-                        else:info['history_checked_at']=info['checked_at']
-                        info.update(last_success_at=info['checked_at'],status='ok')
-                        result['courses'],result['courses_sync']=rows,info
+                        data = self.calendar(calendar_url)
+                        data['calendar_updated_at'] = datetime.now(BERLIN).isoformat()
+                        publish(data, '课表')
                     except Exception:
-                        result['courses_sync']=dict(previous.get('courses_sync',{}),last_success_at=previous.get('courses_sync',{}).get('last_success_at') or previous.get('courses_sync',{}).get('checked_at'),checked_at=workspace.stamp(),status='error',message='课程报名读取未完成，原有课程与个人选择保留。')
-                    documents = []
-                    last_check = previous.get('documents_sync',{}).get('checked_at','')
-                    if not automatic or last_check[:10] != timestamp[:10]:
+                        with self.lock: failed.append('课表')
+
+                def failure(name, exc):
+                    nonlocal expired
+                    failed.append(name)
+                    if isinstance(exc, SessionExpired): expired = True
+
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    calendar = pool.submit(fetch_calendar, url)
+                    url = ''
+                    try:
+                        self.progress(user, account, '正在读取成绩…')
+                        page.goto(TRANSCRIPT, wait_until='domcontentloaded')
+                        verified_session()
+                        grades = self.read_grades(page)
+                        session = verified_session()
+                        publish(dict(grades=grades, grades_updated_at=datetime.now(BERLIN).isoformat()), '成绩', session)
+                    except Exception as exc:
+                        failure('成绩', exc)
+
+                    timestamp = datetime.now(BERLIN).isoformat()
+                    try:
+                        self.progress(user, account, '正在读取课程报名…')
+                        old_info = previous.get('courses_sync', {})
+                        history = old_info.get('history_checked_at') or (old_info.get('checked_at','') if old_info.get('scope')=='all' else '')
+                        recent = history[:10] == timestamp[:10]
+                        rows, info = campo_courses.collect(page, identity, semester, current_only=recent)
+                        if info.get('scope') == 'current':
+                            terms = {campo_courses.term_key(t) for t in info['semesters']}
+                            rows = [r for r in previous.get('courses',[]) if campo_courses.term_key(r.get('semester','')) not in terms] + rows
+                            info['history_checked_at'] = history
+                        else: info['history_checked_at'] = info['checked_at']
+                        info.update(last_success_at=info['checked_at'],status='ok')
+                        publish(dict(courses=rows, courses_sync=info), '课程报名', verified_session())
+                    except Exception as exc:
+                        failure('课程报名', exc)
+                        info = dict(previous.get('courses_sync',{}), checked_at=workspace.stamp(), status='error', message='课程报名更新未完成，请重试。')
+                        info['last_success_at'] = info.get('last_success_at') or previous.get('courses_sync',{}).get('checked_at')
+                        self.commit_sync(user,account,dict(binding,courses_sync=info),None,None)
+
+                    if previous.get('study_planner_sync',{}).get('status') == 'error' or previous.get('study_planner_sync',{}).get('checked_at','')[:10] != timestamp[:10]:
                         try:
-                            documents, result['documents_sync'] = campo_documents.collect(page, context, identity)
-                            final_state = page.evaluate(scripts.STATE)
-                            if not final_state.get('logged_in') or final_state.get('identity') != identity:
-                                documents = []
-                                result['documents_sync'] = {'checked_at':timestamp,'message':'证明读取时身份无法确认，未归档新文件。'}
-                        except Exception:
-                            documents = []
-                            result['documents_sync'] = dict(previous.get('documents_sync',{}),last_success_at=previous.get('documents_sync',{}).get('last_success_at') or previous.get('documents_sync',{}).get('checked_at'),checked_at=timestamp,status='error',message='证明入口读取未完成，旧文件已保留。')
-                    final_login=page.evaluate(scripts.STATE)
-                    if not final_login or not final_login.get('logged_in'):raise SessionExpired('FAU 登录已过期，请重新登录并同步。')
-                    saved_session = self.cipher.encrypt(json.dumps(context.storage_state()).encode()).decode()
-                self.commit_sync(user, account, result, subscription, saved_session, documents)
-                self.progress(user, account, '课表与成绩已自动更新' if automatic else '课表与成绩同步完成')
+                            self.progress(user,account,'正在更新学分…')
+                            session = verified_session()
+                            catalog = campo_planner.collect(context.storage_state(),identity)
+                            publish(dict(study_planner=catalog,study_planner_sync={'checked_at':catalog['checked_at'],'status':'ok','message':'学分已更新'}), '学分', session)
+                        except Exception as exc:
+                            failure('学分', exc)
+                            self.commit_sync(user,account,dict(binding,study_planner_sync=dict(previous.get('study_planner_sync',{}),checked_at=timestamp,status='error',message='学分更新未完成，请重试。')),None,None)
+
+                    if previous.get('documents_sync',{}).get('status') == 'error' or previous.get('documents_sync',{}).get('checked_at','')[:10] != timestamp[:10]:
+                        try:
+                            self.progress(user,account,'正在更新证明文件…')
+                            documents, info = campo_documents.collect(page,context,identity)
+                            publish(dict(documents_sync=info), '证明', verified_session(), documents)
+                        except Exception as exc:
+                            failure('证明', exc)
+                            info = dict(previous.get('documents_sync',{}),checked_at=timestamp,status='error',message='证明更新未完成，请重试。')
+                            info['last_success_at'] = info.get('last_success_at') or previous.get('documents_sync',{}).get('checked_at')
+                            self.commit_sync(user,account,dict(binding,documents_sync=info),None,None)
+                    try: verified_session()
+                    except SessionExpired: expired = True
+                    except DataError: pass
+                    # Only completion waits; each stage was already committed and visible.
+                    calendar.result()
+                if expired: self.mark_expired(user, account)
+                self.commit_sync(user,account,dict(binding,sync_seconds=round(time.monotonic()-start_time,2)),None,None)
+                updated = '、'.join(completed)
+                missing = '、'.join(dict.fromkeys(failed))
+                message = (updated+'已更新。' if updated else '') + (missing+'更新未完成，请重试。' if missing else '同步完成。')
+                if expired: message += '登录已过期，请重新登录。'
+                self.progress(user,account,message)
                 browser.close(); browser = None
         except SessionExpired as exc:
             with self.lock:
@@ -416,11 +505,11 @@ class Campo:
                     settings.update(session='', reauth_required=True)
                     self.save_preferences(store, account, settings)
                 finally: store.close()
-            self.progress(user, account, str(exc) + ' 旧课表和成绩已保留。')
+            self.progress(user, account, str(exc) + ' 已更新的内容已保留。')
         except DataError as exc:
             self.progress(user, account, str(exc))
         except Exception:
-            self.progress(user, account, '同步失败：请检查 Campo 网络与登录信息。旧数据已保留。')
+            self.progress(user, account, '同步未完成，请检查网络后重试；已更新的内容已保留。')
         finally:
             password = None
             if browser:
@@ -429,9 +518,31 @@ class Campo:
             with self.lock: self.jobs[(user, account)]['running'] = False
             self.slots.release()
 
+    def sync_planner(self,user,account):
+        try:
+            with self.lock:
+                store=self.store(user)
+                try:data=store.read(account);saved=self.restore_session(self.preferences(store,account))
+                finally:store.close()
+            catalog=campo_planner.collect(saved,data['identity'])
+            with self.lock:
+                store=self.store(user)
+                try:
+                    current=store.read(account)
+                    if current.get('identity')!=data.get('identity'):raise DataError('账号身份发生变化，未保存学分。')
+                    current.update(study_planner=catalog,study_planner_sync={'checked_at':catalog['checked_at'],'message':'Study Planner 学分已更新','status':'ok'})
+                    with store.db:store.db.execute('UPDATE accounts SET payload=? WHERE id=?',(store._encode(current),account))
+                finally:store.close()
+            self.progress(user,account,'Study Planner 学分已更新；手动学分与分类保持原设置。')
+        except DataError as exc:self.progress(user,account,str(exc))
+        except Exception:self.progress(user,account,'Study Planner 读取未完成，原有学分与个人设置保留。')
+        finally:
+            with self.lock:self.jobs[(user,account)]['running']=False
+            self.slots.release()
+
     def sync_courses(self,user,account):
         try:
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with self.lock:
                 store=self.store(user)
                 try:data=store.read(account);saved=self.restore_session(self.preferences(store,account))
@@ -441,6 +552,7 @@ class Campo:
                 try:
                     context=browser.new_context(storage_state=saved)
                     def guard(route):
+                        if route.request.resource_type in ('image','font','media'):route.abort();return
                         p=urlsplit(route.request.url)
                         if p.scheme=='https' and (p.hostname=='fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):route.continue_()
                         else:route.abort()
@@ -475,7 +587,7 @@ class Campo:
 
     def sync_documents(self,user,account,key=None,term=""):
         try:
-            from playwright.sync_api import sync_playwright
+            from .browser import sync_playwright
             with self.lock:
                 store=self.store(user)
                 try:
@@ -489,6 +601,7 @@ class Campo:
                 try:
                     context=browser.new_context(storage_state=saved,accept_downloads=True)
                     def guard(route):
+                        if route.request.resource_type in ('image','font','media'):route.abort();return
                         p=urlsplit(route.request.url)
                         if p.scheme=='https' and (p.hostname=='fau.de' or (p.hostname or '').endswith('.fau.de')) and p.port in (None,443):route.continue_()
                         else:route.abort()

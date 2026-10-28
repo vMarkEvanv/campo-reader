@@ -21,6 +21,37 @@ class DocumentsTests(unittest.TestCase):
         self.assertEqual(index[0]['title'],'Certificate of enrollment')
         self.assertEqual(index[0]['category'],'enrolment')
 
+    def test_fragment_tabs_and_jsf_actions_click_instead_of_navigating(self):
+        for item in [dict(id='tab',href='https://www.campo.fau.de/qisserver/service.xhtml#documents',role='tab'),dict(id='menu',href='https://www.campo.fau.de/qisserver/service.xhtml',action=True)]:
+            page=MagicMock();d.activate(page,item)
+            page.goto.assert_not_called();page.locator.return_value.first.click.assert_called_once()
+
+    def test_hidden_official_links_are_navigable_and_hidden_jsf_actions_are_invoked(self):
+        page=MagicMock()
+        d.activate(page,dict(id='service',label='Student services',visible=False,href='https://www.campo.fau.de/qisserver/service.xhtml'))
+        page.goto.assert_called_once();page.locator.assert_not_called()
+        page=MagicMock();page.evaluate.return_value=True
+        d.activate(page,dict(id='service',label='Student services',visible=False,href='#',action=True))
+        page.goto.assert_not_called();page.locator.assert_not_called();page.evaluate.assert_called_once()
+
+    def test_delayed_home_menu_and_hidden_services_are_not_missing(self):
+        page=MagicMock();phase=[0];reads=[0]
+        service=dict(id='service',label='Student services',visible=False,href='#',action=True)
+        tab=dict(id='tab',label='Documents',role='tab',visible=True)
+        report=dict(id='report',label='Certificate of enrollment',href='#',pdf=True)
+        def evaluate(script):
+            if script==scripts.STATE:return dict(logged_in=True,identity='Alice')
+            if script==d.NAVIGATION:
+                reads[0]+=1
+                if reads[0]<3:return []
+                return [service] if phase[0]==0 else [tab]
+            if script==d.INDEX:return [report] if phase[0]==2 else []
+            raise AssertionError(script)
+        page.evaluate.side_effect=evaluate
+        def activate(p,item):phase[0]=1 if item['id']=='service' else 2
+        with patch.object(d,'activate',side_effect=activate):rows=d.discover(page,'Alice')
+        self.assertEqual(rows[0]['category'],'enrolment');self.assertGreaterEqual(reads[0],3)
+
     def test_catalog_does_not_expose_urls_or_download_without_selection(self):
         page=MagicMock();context=MagicMock()
         rows=[{'key':'a'*24,'title':'Certificate','category':'enrolment','language':'en','href':'https://www.campo.fau.de/qisserver/report?secret=private'}]
