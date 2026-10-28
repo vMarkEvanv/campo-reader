@@ -23,6 +23,8 @@ public class LocalAppTest {
         activity.onActivity(a->app=(CampoApplication)a.getApplication());
         app.ready.get(90,TimeUnit.SECONDS);
         waitJs("document.getElementById('android-about')!==null", "true");
+        // The shared backend must finish bootstrap (including CSRF) before submitting.
+        waitJs("document.querySelectorAll('#accounts option').length>0", "true");
         waitJs("document.getElementById('add').disabled", "false");
     }
     @After public void close(){activity.close();}
